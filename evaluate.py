@@ -40,7 +40,7 @@ def evaluate(
 def main():
   model = utils.load_model(model_name=MODEL)
 
-  train_loader, _, _ = utils.load_data(shuffle_train_set=False)
+  train_loader, test_loader = utils.load_data(shuffle_train_set=False)
 
   loss_fn = nn.CrossEntropyLoss()
 
@@ -58,10 +58,10 @@ def main():
     model.eval()
 
     train_loss, train_acc = evaluate(model, train_loader, loss_fn)
-    val_loss, val_acc = evaluate(model, train_loader, loss_fn)
+    test_loss, test_acc = evaluate(model, test_loader, loss_fn)
     logging.info(f"Epoch {epoch_idx + 1}. "
-                 f"Loss: Train {train_loss:0.6f}. Val {val_loss:0.6f} "
-                 f"Accuracy: Train {train_acc:0.6f}. Val {val_acc:0.6f} ")
+                 f"Loss: Train {train_loss:0.6f}. Val {test_loss:0.6f} "
+                 f"Accuracy: Train {train_acc:0.6f}. Val {test_acc:0.6f} ")
 
 
 if __name__ == "__main__":

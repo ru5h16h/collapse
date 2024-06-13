@@ -38,7 +38,6 @@ def load_model(model_name: str = None) -> nn.Module:
 def load_data(
     shuffle_train_set: bool = True
 ) -> Tuple[data.DataLoader, data.DataLoader, data.DataLoader]:
-  torch.manual_seed(SEED)
   transform = transforms.Compose([
       transforms.ToTensor(),
       transforms.Normalize(mean=(0.1307,), std=(0.3081,)),
@@ -55,16 +54,10 @@ def load_data(
       download=True,
       transform=transform,
   )
-
-  train_size = int(0.8 * len(train_data))
-  val_size = len(train_data) - train_size
-  train_data, val_data = data.random_split(train_data, [train_size, val_size])
-
   train_loader = data.DataLoader(
       train_data,
       batch_size=BATCH_SIZE,
       shuffle=shuffle_train_set,
   )
-  val_loader = data.DataLoader(val_data, batch_size=BATCH_SIZE, shuffle=False)
   test_loader = data.DataLoader(test_data, batch_size=BATCH_SIZE, shuffle=False)
-  return train_loader, val_loader, test_loader
+  return train_loader, test_loader

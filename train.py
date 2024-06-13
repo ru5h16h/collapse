@@ -2,7 +2,6 @@
 
 import logging
 import os
-from typing import Tuple
 
 import torch
 from torch import optim
@@ -48,15 +47,14 @@ def main():
 
   model = utils.load_model()
 
-  train_loader, val_loader, _ = utils.load_data()
+  train_loader, test_loader = utils.load_data()
 
   loss_fn = nn.CrossEntropyLoss()
   optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
 
-  os.makedirs(f"runs/mnist/{timestamp}")
-  writer = tensorboard.writer.SummaryWriter(f"runs/mnist/{timestamp}/writer")
+  os.makedirs(f"runs/{timestamp}")
+  writer = tensorboard.writer.SummaryWriter(f"runs/{timestamp}/writer")
 
-  # best_val_loss = 100000
   for epoch_idx in range(EPOCHS):
 
     model.train(True)
@@ -70,25 +68,23 @@ def main():
     )
 
     train_loss, train_acc = evaluate.evaluate(model, train_loader, loss_fn)
-    val_loss, val_acc = evaluate.evaluate(model, val_loader, loss_fn)
+    test_loss, test_acc = evaluate.evaluate(model, test_loader, loss_fn)
 
     logging.info(f"Epoch {epoch_idx + 1}. "
-                 f"Loss: Train {train_loss:0.6f}. Val {val_loss:0.6f} "
-                 f"Accuracy: Train {train_acc:0.6f}. Val {val_acc:0.6f} ")
+                 f"Loss: Train {train_loss:0.6f}. Val {test_loss:0.6f} "
+                 f"Accuracy: Train {train_acc:0.6f}. Val {test_acc:0.6f} ")
 
     writer.add_scalars(
-        main_tag="Training vs. Validation loss",
+        main_tag="Training vs. Testing loss",
         tag_scalar_dict={
             "Training": train_loss,
-            "Validation": val_loss
+            "Testing": test_loss
         },
         global_step=epoch_idx + 1,
     )
     writer.flush()
 
-    # if val_loss < best_val_loss:
-    # best_val_loss = val_loss
-    model_path = f"runs/mnist/{timestamp}/model_{epoch_idx + 1}"
+    model_path = f"runs/mnist/{timestamp}/models_{epoch_idx + 1}"
     torch.save(model.state_dict(), model_path)
 
 
