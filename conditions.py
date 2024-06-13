@@ -14,7 +14,7 @@ import utils
 
 TIMESTAMP = "20240611T192306"
 MODEL = "resnet18"
-EPOCH = 25
+EPOCHS = 25
 
 
 def get_intermediate_model(model: nn.Module, layers: Dict[str, str]):
@@ -54,17 +54,21 @@ def main():
 
   model = utils.load_model(model_name=MODEL)
   model_dir = f"runs/mnist/{TIMESTAMP}"
-  file_path = os.path.join(model_dir, f"model_{EPOCH}")
-  model.load_state_dict(torch.load(file_path))
-  model.eval()
 
   layers = {"avgpool": "avgpool", "fc": "fc"}
-  means = get_mean(model, train_loader, layers)
 
-  for layer in layers:
-    for label in means[layer]:
-      logging.info(
-          f"Class: {label}, Layer: {layer}, Mean: {means[layer][label]}")
+  for epoch_idx in range(EPOCHS):
+    logging.info("-" * 79)
+    file_path = os.path.join(model_dir, f"model_{epoch_idx + 1}")
+    model.load_state_dict(torch.load(file_path))
+    model.eval()
+    logging.info(f"Model: {file_path}")
+    means = get_mean(model, train_loader, layers)
+    for layer in layers:
+      for label in means[layer]:
+        logging.info(
+            f"Class: {label}, Layer: {layer}, Std: {np.std(means[layer][label], axis=0).tolist()[:10]}"
+        )
 
 
 if __name__ == "__main__":
