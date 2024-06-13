@@ -56,7 +56,6 @@ def main():
   writer = tensorboard.writer.SummaryWriter(f"runs/{timestamp}/writer")
 
   for epoch_idx in range(EPOCHS):
-
     model.train(True)
     train_epoch(
         epoch_idx=epoch_idx,
@@ -84,7 +83,7 @@ def main():
     )
     writer.flush()
 
-    model_path = f"runs/mnist/{timestamp}/models_{epoch_idx + 1}"
+    model_path = f"runs/{timestamp}/models_{epoch_idx + 1}"
     torch.save(model.state_dict(), model_path)
 
 
