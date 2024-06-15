@@ -2,6 +2,8 @@ import logging
 import os
 from typing import Tuple
 
+import numpy as np
+from scipy.sparse import linalg
 import tqdm
 import torch
 import torch.nn as nn
@@ -12,41 +14,122 @@ import utils
 TIMESTAMP = "20240611T192306"
 MODEL = "resnet18"
 
+N_CLASSES = 10
+
+
+def get_class_means(
+    data_loader: data.DataLoader,
+    device: str,
+    model: nn.Module,
+    features: utils.Features,
+):
+  # For computing mean per class.
+  mean = [0 for _ in range(N_CLASSES)]
+  n_per_class = [0 for _ in range(N_CLASSES)]
+  data_len = len(data_loader)
+  p_bar = tqdm.tqdm(total=data_len, position=0, leave=True)
+  idx = 0
+  for inputs, labels in data_loader:
+    if inputs.shape[0] != utils.BATCH_SIZE:
+      continue
+    inputs, labels = inputs.to(device), labels.to(device)
+    model(inputs)
+    hid = features.value.view(inputs.shape[0], -1)
+    for cl in range(N_CLASSES):
+      idxs = (labels == cl).nonzero(as_tuple=True)[0]
+      if len(idxs) == 0:
+        continue
+      hid_cl = hid[idxs, :]
+      mean[cl] += torch.sum(hid_cl, axis=0)
+      n_per_class[cl] += hid_cl.shape[0]
+    p_bar.update(1)
+    p_bar.set_description(f"Mean [{idx + 1}/{data_len}]")
+    idx += 1
+    if utils.DEBUG and idx == 20:
+      break
+  for cl in range(N_CLASSES):
+    mean[cl] /= (n_per_class[cl] + 1e-9)
+  return mean
+
+
+def get_within_class_cov_and_other(
+    data_loader: data.DataLoader,
+    device: str,
+    model: nn.Module,
+    features: utils.Features,
+    mean: torch.Tensor,
+    loss_fn_red: nn.Module,
+):
+  loss = 0
+  acc = 0
+
+  data_len = len(data_loader)
+  p_bar = tqdm.tqdm(total=data_len, position=0, leave=True)
+  idx = 0
+  Sw = 0
+  for inputs, labels in data_loader:
+    if inputs.shape[0] != utils.BATCH_SIZE:
+      continue
+    inputs, labels = inputs.to(device), labels.to(device)
+    outputs = model(inputs)
+    acc += (torch.max(outputs, 1)[1] == labels).sum().item()
+    loss += loss_fn_red(outputs, labels).item()
+
+    hid = features.value.view(inputs.shape[0], -1)
+    for cl in range(N_CLASSES):
+      idxs = (labels == cl).nonzero(as_tuple=True)[0]
+      if len(idxs) == 0:
+        continue
+      hid_cl = hid[idxs, :]
+
+      hid_cl_ = hid_cl - mean[cl].unsqueeze(0)
+      cov = torch.matmul(hid_cl_.unsqueeze(-1), hid_cl_.unsqueeze(1))
+      Sw += torch.sum(cov, dim=0)
+
+    p_bar.update(1)
+    p_bar.set_description(f"Covariance [{idx + 1}/{data_len}]")
+    idx += 1
+    if utils.DEBUG and idx == 20:
+      break
+
+  n_samples = (idx + 1) * utils.BATCH_SIZE
+  Sw /= n_samples
+  loss /= n_samples
+  acc /= n_samples
+  return Sw, loss, acc
+
 
 def evaluate(
-    epoch_idx: int,
     model: nn.Module,
     device: str,
     data_loader: data.DataLoader,
     loss_fn_red: nn.Module,
     metrics: utils.Metrics,
+    features: utils.Features,
 ) -> Tuple[float, float]:
-  loss = 0
-  net_cor = 0
-  model.eval()
-  data_len = len(data_loader)
-  p_bar = tqdm.tqdm(total=data_len, position=0, leave=True)
-  idx = 0
-  with torch.no_grad():
-    for inputs, labels in data_loader:
-      if inputs.shape[0] != utils.BATCH_SIZE:
-        continue
+  # Get class means.
+  mean = get_class_means(data_loader, device, model, features)
+  # Compute global mean.
+  mean_c = torch.stack(mean).T
+  mean_g = torch.mean(mean_c, dim=1, keepdim=True)
 
-      inputs, labels = inputs.to(device), labels.to(device)
-      outputs = model(inputs)
+  # Between-class covariance
+  mean_c_ = mean_c - mean_g
+  Sb = torch.matmul(mean_c_, mean_c_.T) / N_CLASSES
 
-      net_cor += (torch.max(outputs, 1)[1] == labels).sum().item()
-      loss += loss_fn_red(outputs, labels).item()
-      p_bar.update(1)
-      p_bar.set_description(
-          f"Analysis. Epoch: {epoch_idx + 1} [{idx + 1}/{data_len}]")
+  # Get with-in class covariance.
+  Sw, loss, acc = get_within_class_cov_and_other(data_loader, device, model,
+                                                 features, mean, loss_fn_red)
 
-      idx += 1
-      if utils.DEBUG and idx == 20:
-        break
-  p_bar.close()
-  metrics.loss.append(loss / (idx * utils.BATCH_SIZE))
-  metrics.acc.append(net_cor / (idx * utils.BATCH_SIZE))
+  # tr{Sw Sb^-1}
+  Sw = Sw.cpu().detach().numpy()
+  Sb = Sb.cpu().detach().numpy()
+  eigvec, eigval, _ = linalg.svds(Sb, k=N_CLASSES - 1)
+  inv_Sb = eigvec @ np.diag(eigval**(-1)) @ eigvec.T
+
+  metrics.loss.append(loss)
+  metrics.acc.append(acc)
+  metrics.Sw_invSb.append(np.trace(Sw @ inv_Sb))
 
 
 def main():

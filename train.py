@@ -13,6 +13,7 @@ from torch.utils import data
 import utils
 import evaluate
 
+MODEL = "resnet18"
 EPOCHS = 350
 
 WEIGHT_DECAY = 5e-4
@@ -62,7 +63,8 @@ def main():
   timestamp = utils.get_current_ts()
   logging.info(f"Timestamp: {timestamp}.")
 
-  model = utils.load_model(input_channels=utils.INPUT_CHANNELS)
+  model = utils.load_model(model_name=MODEL, in_channels=utils.INPUT_CHANNELS)
+  features = utils.Features(module=model.fc)
 
   train_loader, _ = utils.load_data()
 
@@ -97,18 +99,19 @@ def main():
     )
     lr_scheduler.step()
     evaluate.evaluate(
-        epoch_idx=epoch_idx,
         device=device,
         model=model,
         data_loader=train_loader,
         loss_fn_red=loss_fn_red,
         metrics=metrics,
+        features=features,
     )
     logging.info(f"Epoch {epoch_idx + 1}. "
                  f"Loss: {metrics.loss[-1]:.6f}. "
                  f"Acc: {metrics.acc[-1]:.6f}.")
     writer.add_scalar("Loss", metrics.loss[-1], epoch_idx + 1)
     writer.add_scalar("Accuracy", metrics.acc[-1], epoch_idx + 1)
+    writer.add_scalar("tr(Sw_Sb-1)", metrics.Sw_invSb[-1], epoch_idx + 1)
     writer.flush()
 
     model_path = f"runs/{timestamp}/model_{epoch_idx + 1}"

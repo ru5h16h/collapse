@@ -21,7 +21,7 @@ def get_current_ts() -> str:
   return datetime.datetime.now().strftime("%Y%m%dT%H%M%S")
 
 
-def load_model(input_channels: int, model_name: str = None) -> nn.Module:
+def load_model(in_channels: int, model_name: str = None) -> nn.Module:
   match model_name:
     case "resnet18":
       model = models.resnet18(pretrained=False, num_classes=10)
@@ -30,7 +30,7 @@ def load_model(input_channels: int, model_name: str = None) -> nn.Module:
     case _:
       model = models.resnet18(pretrained=False, num_classes=10)
   model.conv1 = nn.Conv2d(
-      in_channels=input_channels,
+      in_channels=in_channels,
       out_channels=model.conv1.weight.shape[0],
       kernel_size=3,
       stride=1,
@@ -75,3 +75,13 @@ class Metrics:
   def __init__(self) -> None:
     self.acc = []
     self.loss = []
+    self.Sw_invSb = []
+
+
+class Features:
+
+  def __init__(self, module: nn.Module):
+    self.hook = module.register_forward_hook(self.hook_fn)
+
+  def hook_fn(self, module, inputs, outputs):
+    self.value = inputs[0].clone()
