@@ -107,6 +107,7 @@ def evaluate(
     metrics: utils.Metrics,
     features: utils.Features,
 ) -> Tuple[float, float]:
+  model.eval()
   # Get class means.
   mean = get_class_means(data_loader, device, model, features)
   # Compute global mean.
