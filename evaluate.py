@@ -2,6 +2,7 @@ import logging
 import os
 from typing import Tuple
 
+import tqdm
 import torch
 import torch.nn as nn
 from torch.utils import data
@@ -13,28 +14,39 @@ MODEL = "resnet18"
 
 
 def evaluate(
+    epoch_idx: int,
     model: nn.Module,
+    device: str,
     data_loader: data.DataLoader,
-    loss_fn: nn.Module,
+    loss_fn_red: nn.Module,
+    metrics: utils.Metrics,
 ) -> Tuple[float, float]:
-  running_loss = 0
+  loss = 0
+  net_cor = 0
+  net_pred = 0
   model.eval()
-  correct_predictions = 0
-  total_predictions = 0
+  data_len = len(data_loader)
+  p_bar = tqdm.tqdm(total=data_len, position=0, leave=True)
   with torch.no_grad():
-    for idx, val_data in enumerate(data_loader):
-      inputs, labels = val_data
+    for idx, (inputs, labels) in enumerate(data_loader):
+      if inputs.shape[0] != utils.BATCH_SIZE:
+        continue
+
+      inputs, labels = inputs.to(device), labels.to(device)
       outputs = model(inputs)
-      loss = loss_fn(outputs, labels)
 
-      _, predictions = torch.max(outputs, 1)
-      correct_predictions += (predictions == labels).sum().item()
-      total_predictions += labels.size(0)
-      running_loss += loss
+      net_cor += (torch.max(outputs, 1)[1] == labels).sum().item()
+      net_pred += utils.BATCH_SIZE
+      loss += loss_fn_red(outputs, labels)
+      p_bar.update(1)
+      p_bar.set_description(
+          f"Analysis. Epoch: {epoch_idx + 1} [{idx + 1}/{data_len}]")
 
-  avg_loss = running_loss / (idx + 1)
-  acc = correct_predictions / total_predictions
-  return avg_loss, acc
+      if utils.DEBUG and idx == 20:
+        break
+  p_bar.close()
+  metrics.loss.append(loss / data_len)
+  metrics.acc.append(net_cor / net_pred)
 
 
 def main():
@@ -44,7 +56,7 @@ def main():
 
   loss_fn = nn.CrossEntropyLoss()
 
-  model_dir = f"runs/mnist/{TIMESTAMP}"
+  model_dir = f"runs/{TIMESTAMP}"
   epochs = list(range(25))
 
   for epoch_idx in epochs:
