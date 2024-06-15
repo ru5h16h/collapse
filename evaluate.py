@@ -23,12 +23,12 @@ def evaluate(
 ) -> Tuple[float, float]:
   loss = 0
   net_cor = 0
-  net_pred = 0
   model.eval()
   data_len = len(data_loader)
   p_bar = tqdm.tqdm(total=data_len, position=0, leave=True)
+  idx = 0
   with torch.no_grad():
-    for idx, (inputs, labels) in enumerate(data_loader):
+    for inputs, labels in data_loader:
       if inputs.shape[0] != utils.BATCH_SIZE:
         continue
 
@@ -36,17 +36,17 @@ def evaluate(
       outputs = model(inputs)
 
       net_cor += (torch.max(outputs, 1)[1] == labels).sum().item()
-      net_pred += utils.BATCH_SIZE
-      loss += loss_fn_red(outputs, labels)
+      loss += loss_fn_red(outputs, labels).item()
       p_bar.update(1)
       p_bar.set_description(
           f"Analysis. Epoch: {epoch_idx + 1} [{idx + 1}/{data_len}]")
 
+      idx += 1
       if utils.DEBUG and idx == 20:
         break
   p_bar.close()
-  metrics.loss.append(loss / data_len)
-  metrics.acc.append(net_cor / net_pred)
+  metrics.loss.append(loss / (idx * utils.BATCH_SIZE))
+  metrics.acc.append(net_cor / (idx * utils.BATCH_SIZE))
 
 
 def main():
