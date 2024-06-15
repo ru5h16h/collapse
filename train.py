@@ -104,6 +104,9 @@ def main():
         loss_fn_red=loss_fn_red,
         metrics=metrics,
     )
+    logging.info(f"Epoch {epoch_idx + 1}. "
+                 f"Loss: {metrics.loss[-1]:.6f}. "
+                 f"Acc: {metrics.acc[-1]:.6f}.")
     writer.add_scalar("Loss", metrics.loss[-1], epoch_idx + 1)
     writer.add_scalar("Accuracy", metrics.acc[-1], epoch_idx + 1)
     writer.flush()

@@ -8,13 +8,13 @@ from torchvision import datasets
 from torchvision import transforms
 import torchvision.models as models
 
-BATCH_SIZE = 16
+BATCH_SIZE = 128
 SEED = 42
 IMG_SIZE = 28
 PADDED_IMG_SIZE = 32
 INPUT_CHANNELS = 1
 
-DEBUG = False
+DEBUG = True
 
 
 def get_current_ts() -> str:
