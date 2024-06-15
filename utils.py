@@ -84,4 +84,4 @@ class Features:
     self.hook = module.register_forward_hook(self.hook_fn)
 
   def hook_fn(self, module, inputs, outputs):
-    self.value = inputs[0].clone()
+    self.value = inputs[0].detach().clone()
