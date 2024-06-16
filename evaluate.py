@@ -149,14 +149,14 @@ def evaluate(
   metrics_d["w_equi_norm"] = w_equi_norm
 
   # Train class mean approaches equiangularity. See figure 3.
-  mask = utils.get_off_diag_mask(mu_c_zm.size(0))
+  mask = utils.get_off_diag_mask(mu_c_zm.size(1))
   # Last layer activations.
   mu_c_zm_norm = mu_c_zm / norm_mu_c_zm
-  mu_c_zm_cos = mu_c_zm_norm @ mu_c_zm_norm.T
+  mu_c_zm_cos = mu_c_zm_norm.T @ mu_c_zm_norm
   metrics_d["std_act_cos_c"] = mu_c_zm_cos[mask].std().item()
   # Last layer classifier weights.
   w_fc_norm = w_fc / norm_w_fc
-  w_fc_cos = w_fc_norm @ w_fc_norm.T
+  w_fc_cos = w_fc_norm.T @ w_fc_norm
   metrics_d["std_w_cos_c"] = w_fc_cos[mask].std().item()
 
   # Train class mean approches maximal-angle equiangularity. See figure 4.
@@ -173,4 +173,5 @@ def evaluate(
   w_fc_f_norm = w_fc / torch.norm(w_fc)
   metrics_d["w_act"] = torch.norm(mu_c_zm_f_norm - w_fc_f_norm).item()
 
+  # Keep track of metrics.
   metrics.append_items(epoch_idx, **metrics_d)

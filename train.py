@@ -101,7 +101,7 @@ def main():
     )
     lr_scheduler.step()
 
-    if epoch_idx not in EPOCH_LIST:
+    if epoch_idx in EPOCH_LIST:
       evaluate.evaluate(
           epoch_idx=epoch_idx,
           model=model,
