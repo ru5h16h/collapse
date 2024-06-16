@@ -19,10 +19,10 @@ N_CLASSES = 10
 
 def get_class_means(
     data_loader: data.DataLoader,
-    device: str,
     model: nn.Module,
     features: utils.Features,
-):
+) -> torch.Tensor:
+  device = utils.get_device()
   # For computing mean per class.
   mean = [0 for _ in range(N_CLASSES)]
   n_per_class = [0 for _ in range(N_CLASSES)]
@@ -30,8 +30,6 @@ def get_class_means(
   p_bar = tqdm.tqdm(total=data_len, position=0, leave=True)
   idx = 0
   for inputs, labels in data_loader:
-    if inputs.shape[0] != utils.BATCH_SIZE:
-      continue
     inputs, labels = inputs.to(device), labels.to(device)
     model(inputs)
     hid = features.value.view(inputs.shape[0], -1)
@@ -54,12 +52,12 @@ def get_class_means(
 
 def get_within_class_cov_and_other(
     data_loader: data.DataLoader,
-    device: str,
     model: nn.Module,
     features: utils.Features,
-    mean: torch.Tensor,
+    mean_per_class: torch.Tensor,
     loss_fn_red: nn.Module,
 ):
+  device = utils.get_device()
   loss = 0
   acc = 0
 
@@ -68,8 +66,6 @@ def get_within_class_cov_and_other(
   idx = 0
   Sw = 0
   for inputs, labels in data_loader:
-    if inputs.shape[0] != utils.BATCH_SIZE:
-      continue
     inputs, labels = inputs.to(device), labels.to(device)
     outputs = model(inputs)
     acc += (torch.max(outputs, 1)[1] == labels).sum().item()
@@ -82,7 +78,7 @@ def get_within_class_cov_and_other(
         continue
       hid_cl = hid[idxs, :]
 
-      hid_cl_ = hid_cl - mean[cl].unsqueeze(0)
+      hid_cl_ = hid_cl - mean_per_class[cl].unsqueeze(0)
       cov = torch.matmul(hid_cl_.unsqueeze(-1), hid_cl_.unsqueeze(1))
       Sw += torch.sum(cov, dim=0)
 
@@ -101,36 +97,55 @@ def get_within_class_cov_and_other(
 
 def evaluate(
     model: nn.Module,
-    device: str,
     data_loader: data.DataLoader,
     loss_fn_red: nn.Module,
     metrics: utils.Metrics,
     features: utils.Features,
 ) -> Tuple[float, float]:
+  # Set the eval flag.
   model.eval()
+
   # Get class means.
-  mean = get_class_means(data_loader, device, model, features)
+  mean_per_class = get_class_means(data_loader, model, features)
   # Compute global mean.
-  mean_c = torch.stack(mean).T
-  mean_g = torch.mean(mean_c, dim=1, keepdim=True)
+  mu_c = torch.stack(mean_per_class).T
+  mu_g = torch.mean(mu_c, dim=1, keepdim=True)
 
   # Between-class covariance
-  mean_c_ = mean_c - mean_g
-  Sb = torch.matmul(mean_c_, mean_c_.T) / N_CLASSES
+  mu_c_zm = mu_c - mu_g
+  cov_bc = torch.matmul(mu_c_zm, mu_c_zm.T) / N_CLASSES
 
   # Get with-in class covariance.
-  Sw, loss, acc = get_within_class_cov_and_other(data_loader, device, model,
-                                                 features, mean, loss_fn_red)
+  cov_wc, loss, acc = get_within_class_cov_and_other(data_loader, model,
+                                                     features, mean_per_class,
+                                                     loss_fn_red)
 
-  # tr{Sw Sb^-1}
-  Sw = Sw.cpu().detach().numpy()
-  Sb = Sb.cpu().detach().numpy()
-  eigvec, eigval, _ = linalg.svds(Sb, k=N_CLASSES - 1)
-  inv_Sb = eigvec @ np.diag(eigval**(-1)) @ eigvec.T
+  # # tr{Sw Sb^-1}. Training within-class variation collapse. See figure 6.
+  cov_wc = cov_wc.cpu().detach().numpy()
+  cov_bc = cov_bc.cpu().detach().numpy()
+  eig_vec, eig_val, _ = linalg.svds(cov_bc, k=N_CLASSES - 1)
+  inv_cov_bc = eig_vec @ np.diag(eig_val**(-1)) @ eig_vec.T
+  wc_nc = np.trace(cov_wc @ inv_cov_bc)
+
+  # Train class mean becomes equinorm. See figure 2.
+  norm_mu_c_zm = torch.norm(mu_c_zm, dim=0)
+  act_equi_norm = (norm_mu_c_zm.std() / norm_mu_c_zm.mean()).item()
+
+  # Train class mean approaches equiangularity. See figure 3.
+  mu_c_zm_norm = mu_c_zm / norm_mu_c_zm
+  mu_c_zm_dot = mu_c_zm_norm @ mu_c_zm_norm.T
+  mask = utils.get_off_diag_mask(mu_c_zm_dot.size(0))
+  std_cos_c = mu_c_zm_dot[mask].std().item()
+
+  # Train class mean approches maximal-angle equiangularity. See figure 4.
+  max_equi_angle = (mu_c_zm_dot[mask] + 1 / (N_CLASSES + 1)).abs().mean().item()
 
   metrics.loss.append(loss)
   metrics.acc.append(acc)
-  metrics.Sw_invSb.append(np.trace(Sw @ inv_Sb))
+  metrics.wc_nc.append(wc_nc)
+  metrics.act_equi_norm.append(act_equi_norm)
+  metrics.std_cos_c.append(std_cos_c)
+  metrics.max_equi_angle.append(max_equi_angle)
 
 
 def main():

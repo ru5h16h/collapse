@@ -62,11 +62,17 @@ def load_data() -> Tuple[data.DataLoader, data.DataLoader, data.DataLoader]:
       transform=transform,
   )
   train_loader = data.DataLoader(
-      train_data,
+      dataset=train_data,
       batch_size=BATCH_SIZE,
       shuffle=True,
+      drop_last=True,
   )
-  test_loader = data.DataLoader(test_data, batch_size=BATCH_SIZE, shuffle=False)
+  test_loader = data.DataLoader(
+      dataset=test_data,
+      batch_size=BATCH_SIZE,
+      shuffle=False,
+      drop_last=True,
+  )
   return train_loader, test_loader
 
 
@@ -75,7 +81,10 @@ class Metrics:
   def __init__(self) -> None:
     self.acc = []
     self.loss = []
-    self.Sw_invSb = []
+    self.wc_nc = []
+    self.act_equi_norm = []
+    self.std_cos_c = []
+    self.max_equi_angle = []
 
 
 class Features:
@@ -85,3 +94,17 @@ class Features:
 
   def hook_fn(self, module, inputs, outputs):
     self.value = inputs[0].detach().clone()
+
+
+def get_accuracy(labels: torch.Tensor, outputs: torch.Tensor) -> float:
+  pred_classes = torch.argmax(outputs, dim=1)
+  acc = (pred_classes == labels).float().mean().item()
+  return acc
+
+
+def get_device() -> str:
+  return torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+
+def get_off_diag_mask(size: int) -> torch.Tensor:
+  return ~torch.eye(size, dtype=torch.bool, device=get_device())

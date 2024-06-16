@@ -25,20 +25,18 @@ EPOCHS_LR_DECAY = [EPOCHS // 3, EPOCHS * 2 // 3]
 
 
 def train_epoch(
-    epoch_idx: int,
-    device: str,
     model: nn.Module,
     train_loader: data.DataLoader,
     optimizer: optim.Optimizer,
     loss_fn: nn.Module,
 ) -> float:
+  # Set the training flag.
   model.train()
+  device = utils.get_device()
+
   data_len = len(train_loader)
   p_bar = tqdm.tqdm(total=data_len, position=0, leave=True)
   for idx, (inputs, labels) in enumerate(train_loader):
-    if inputs.shape[0] != utils.BATCH_SIZE:
-      continue
-
     inputs, labels = inputs.to(device), labels.to(device)
     optimizer.zero_grad()
     outputs = model(inputs)
@@ -47,11 +45,11 @@ def train_epoch(
     loss.backward()
     optimizer.step()
 
-    acc = torch.mean((torch.argmax(outputs, dim=1) == labels).float()).item()
+    acc = utils.get_accuracy(labels, outputs)
 
     p_bar.update(1)
     p_bar.set_description(
-        f"Train. Epoch: {epoch_idx + 1} [{idx + 1}/{data_len}. "
+        f"Train. [{idx + 1}/{data_len}] "
         f"Batch Loss: {loss.item():.6f}. Batch Accuracy: {acc:.6f}.")
 
     if utils.DEBUG and idx == 20:
@@ -85,13 +83,10 @@ def main():
 
   os.makedirs(f"runs/{timestamp}")
   writer = tensorboard.writer.SummaryWriter(f"runs/{timestamp}/writer")
-  device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
   metrics = utils.Metrics()
   for epoch_idx in range(EPOCHS):
     train_epoch(
-        epoch_idx=epoch_idx,
-        device=device,
         model=model,
         train_loader=train_loader,
         optimizer=optimizer,
@@ -99,20 +94,29 @@ def main():
     )
     lr_scheduler.step()
     evaluate.evaluate(
-        device=device,
         model=model,
         data_loader=train_loader,
         loss_fn_red=loss_fn_red,
         metrics=metrics,
         features=features,
     )
-    logging.info(f"Epoch {epoch_idx + 1}. "
-                 f"Loss: {metrics.loss[-1]:.6f}. "
-                 f"Acc: {metrics.acc[-1]:.6f}. "
-                 f"tr(Sw_Sb-1): {metrics.Sw_invSb[-1]}.")
+    logging.info(
+        f"Epoch {epoch_idx + 1}.\n"
+        f"Loss: {metrics.loss[-1]:.6f}.\n"
+        f"Acc: {metrics.acc[-1]:.6f}.\n"
+        f"With-in class variation collapse: {metrics.wc_nc[-1]:.6f}.\n"
+        f"Class mean becomes equinorm: {metrics.act_equi_norm[-1]:.6f}.\n"
+        f"Class mean approaches equiangularity: {metrics.std_cos_c[-1]:.6f}.\n"
+        f"Class mean approach maximal-angle equiangularity: {metrics.max_equi_angle[-1]:.6f}."
+    )
+
     writer.add_scalar("Loss", metrics.loss[-1], epoch_idx + 1)
     writer.add_scalar("Accuracy", metrics.acc[-1], epoch_idx + 1)
-    writer.add_scalar("tr(Sw_Sb-1)", metrics.Sw_invSb[-1], epoch_idx + 1)
+    writer.add_scalar("wc_nc", metrics.wc_nc[-1], epoch_idx + 1)
+    writer.add_scalar("act_equi_norm", metrics.act_equi_norm[-1], epoch_idx + 1)
+    writer.add_scalar("std_cos_c", metrics.std_cos_c[-1], epoch_idx + 1)
+    writer.add_scalar("max_equi_angle", metrics.max_equi_angle[-1],
+                      epoch_idx + 1)
     writer.flush()
 
     model_path = f"runs/{timestamp}/model_{epoch_idx + 1}"
