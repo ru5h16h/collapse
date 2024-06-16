@@ -1,4 +1,5 @@
 import datetime
+import logging
 from typing import Tuple
 
 import torch
@@ -24,11 +25,11 @@ def get_current_ts() -> str:
 def load_model(in_channels: int, model_name: str = None) -> nn.Module:
   match model_name:
     case "resnet18":
-      model = models.resnet18(pretrained=False, num_classes=10)
+      model = models.resnet18(num_classes=10)
     case "resnet50":
-      model = models.resnet50(pretrained=False, num_classes=10)
+      model = models.resnet50(num_classes=10)
     case _:
-      model = models.resnet18(pretrained=False, num_classes=10)
+      model = models.resnet18(num_classes=10)
   model.conv1 = nn.Conv2d(
       in_channels=in_channels,
       out_channels=model.conv1.weight.shape[0],
@@ -78,13 +79,31 @@ def load_data() -> Tuple[data.DataLoader, data.DataLoader, data.DataLoader]:
 
 class Metrics:
 
-  def __init__(self) -> None:
+  def __init__(self, tb_writer) -> None:
+    self.tb_writer = tb_writer
+
     self.acc = []
     self.loss = []
+
+    # NC 1.
     self.wc_nc = []
+
     self.act_equi_norm = []
-    self.std_cos_c = []
-    self.max_equi_angle = []
+    self.w_equi_norm = []
+
+    self.std_act_cos_c = []
+    self.std_w_cos_c = []
+
+    self.max_equi_angle_act = []
+    self.max_equi_angle_w = []
+
+    self.w_act = []
+
+  def append_items(self, epoch, **kwargs):
+    for key, value in kwargs.items():
+      getattr(self, key).append(value)
+      logging.info(f"{key}: {value:.6f}.")
+      self.tb_writer.add_scalar(key, value, epoch)
 
 
 class Features:

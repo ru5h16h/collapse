@@ -23,6 +23,12 @@ LEARNING_RATE = 0.0679
 LR_DECAY = 0.1
 EPOCHS_LR_DECAY = [EPOCHS // 3, EPOCHS * 2 // 3]
 
+EPOCH_LIST = [
+    1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 16, 17, 19, 20, 22, 24, 27,
+    29, 32, 35, 38, 42, 45, 50, 54, 59, 65, 71, 77, 85, 92, 101, 110, 121, 132,
+    144, 158, 172, 188, 206, 225, 245, 268, 293, 320, 350
+]
+
 
 def train_epoch(
     model: nn.Module,
@@ -84,8 +90,9 @@ def main():
   os.makedirs(f"runs/{timestamp}")
   writer = tensorboard.writer.SummaryWriter(f"runs/{timestamp}/writer")
 
-  metrics = utils.Metrics()
+  metrics = utils.Metrics(tb_writer=writer)
   for epoch_idx in range(EPOCHS):
+    logging.info(f"Epoch: {epoch_idx}.")
     train_epoch(
         model=model,
         train_loader=train_loader,
@@ -93,33 +100,19 @@ def main():
         loss_fn=loss_fn,
     )
     lr_scheduler.step()
-    evaluate.evaluate(
-        model=model,
-        data_loader=train_loader,
-        loss_fn_red=loss_fn_red,
-        metrics=metrics,
-        features=features,
-    )
-    logging.info(
-        f"Epoch {epoch_idx + 1}.\n"
-        f"Loss: {metrics.loss[-1]:.6f}.\n"
-        f"Acc: {metrics.acc[-1]:.6f}.\n"
-        f"With-in class variation collapse: {metrics.wc_nc[-1]:.6f}.\n"
-        f"Class mean becomes equinorm: {metrics.act_equi_norm[-1]:.6f}.\n"
-        f"Class mean approaches equiangularity: {metrics.std_cos_c[-1]:.6f}.\n"
-        f"Class mean approach maximal-angle equiangularity: {metrics.max_equi_angle[-1]:.6f}."
-    )
 
-    writer.add_scalar("Loss", metrics.loss[-1], epoch_idx + 1)
-    writer.add_scalar("Accuracy", metrics.acc[-1], epoch_idx + 1)
-    writer.add_scalar("wc_nc", metrics.wc_nc[-1], epoch_idx + 1)
-    writer.add_scalar("act_equi_norm", metrics.act_equi_norm[-1], epoch_idx + 1)
-    writer.add_scalar("std_cos_c", metrics.std_cos_c[-1], epoch_idx + 1)
-    writer.add_scalar("max_equi_angle", metrics.max_equi_angle[-1],
-                      epoch_idx + 1)
+    if epoch_idx not in EPOCH_LIST:
+      evaluate.evaluate(
+          epoch_idx=epoch_idx,
+          model=model,
+          data_loader=train_loader,
+          loss_fn_red=loss_fn_red,
+          metrics=metrics,
+          features=features,
+      )
+
     writer.flush()
-
-    model_path = f"runs/{timestamp}/model_{epoch_idx + 1}"
+    model_path = f"runs/{timestamp}/model_{epoch_idx}"
     torch.save(model.state_dict(), model_path)
 
     if utils.DEBUG and epoch_idx == 2:

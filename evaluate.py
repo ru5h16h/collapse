@@ -96,6 +96,7 @@ def get_within_class_cov_and_other(
 
 
 def evaluate(
+    epoch_idx: int,
     model: nn.Module,
     data_loader: data.DataLoader,
     loss_fn_red: nn.Module,
@@ -104,6 +105,8 @@ def evaluate(
 ) -> Tuple[float, float]:
   # Set the eval flag.
   model.eval()
+
+  metrics_d = {}
 
   # Get class means.
   mean_per_class = get_class_means(data_loader, model, features)
@@ -116,65 +119,58 @@ def evaluate(
   cov_bc = torch.matmul(mu_c_zm, mu_c_zm.T) / N_CLASSES
 
   # Get with-in class covariance.
-  cov_wc, loss, acc = get_within_class_cov_and_other(data_loader, model,
-                                                     features, mean_per_class,
-                                                     loss_fn_red)
+  cov_wc, loss, acc = get_within_class_cov_and_other(
+      data_loader,
+      model,
+      features,
+      mean_per_class,
+      loss_fn_red,
+  )
+  metrics_d["loss"] = loss
+  metrics_d["acc"] = acc
+
+  w_fc = model.fc.weight.T
 
   # # tr{Sw Sb^-1}. Training within-class variation collapse. See figure 6.
   cov_wc = cov_wc.cpu().detach().numpy()
   cov_bc = cov_bc.cpu().detach().numpy()
   eig_vec, eig_val, _ = linalg.svds(cov_bc, k=N_CLASSES - 1)
   inv_cov_bc = eig_vec @ np.diag(eig_val**(-1)) @ eig_vec.T
-  wc_nc = np.trace(cov_wc @ inv_cov_bc)
+  metrics_d["wc_nc"] = np.trace(cov_wc @ inv_cov_bc)
 
   # Train class mean becomes equinorm. See figure 2.
+  # Last layer activations.
   norm_mu_c_zm = torch.norm(mu_c_zm, dim=0)
   act_equi_norm = (norm_mu_c_zm.std() / norm_mu_c_zm.mean()).item()
+  metrics_d["act_equi_norm"] = act_equi_norm
+  # Last layer classifier weights.
+  norm_w_fc = torch.norm(w_fc, dim=0)
+  w_equi_norm = (norm_w_fc.std() / norm_w_fc.mean()).item()
+  metrics_d["w_equi_norm"] = w_equi_norm
 
   # Train class mean approaches equiangularity. See figure 3.
+  mask = utils.get_off_diag_mask(mu_c_zm.size(0))
+  # Last layer activations.
   mu_c_zm_norm = mu_c_zm / norm_mu_c_zm
-  mu_c_zm_dot = mu_c_zm_norm @ mu_c_zm_norm.T
-  mask = utils.get_off_diag_mask(mu_c_zm_dot.size(0))
-  std_cos_c = mu_c_zm_dot[mask].std().item()
+  mu_c_zm_cos = mu_c_zm_norm @ mu_c_zm_norm.T
+  metrics_d["std_act_cos_c"] = mu_c_zm_cos[mask].std().item()
+  # Last layer classifier weights.
+  w_fc_norm = w_fc / norm_w_fc
+  w_fc_cos = w_fc_norm @ w_fc_norm.T
+  metrics_d["std_w_cos_c"] = w_fc_cos[mask].std().item()
 
   # Train class mean approches maximal-angle equiangularity. See figure 4.
-  max_equi_angle = (mu_c_zm_dot[mask] + 1 / (N_CLASSES + 1)).abs().mean().item()
+  angle = 1 / (N_CLASSES - 1)
+  # Last layer activations.
+  max_equi_angle_act = (mu_c_zm_cos[mask] + angle).abs().mean().item()
+  metrics_d["max_equi_angle_act"] = max_equi_angle_act
+  # Last layer classifier weights.
+  max_equi_angle_w = (w_fc_cos[mask] + angle).abs().mean().item()
+  metrics_d["max_equi_angle_w"] = max_equi_angle_w
 
-  metrics.loss.append(loss)
-  metrics.acc.append(acc)
-  metrics.wc_nc.append(wc_nc)
-  metrics.act_equi_norm.append(act_equi_norm)
-  metrics.std_cos_c.append(std_cos_c)
-  metrics.max_equi_angle.append(max_equi_angle)
+  # Classifier converges to train class means. See figure 5.
+  mu_c_zm_f_norm = mu_c_zm / torch.norm(mu_c_zm)
+  w_fc_f_norm = w_fc / torch.norm(w_fc)
+  metrics_d["w_act"] = torch.norm(mu_c_zm_f_norm - w_fc_f_norm).item()
 
-
-def main():
-  model = utils.load_model(model_name=MODEL)
-
-  train_loader, test_loader = utils.load_data(shuffle_train_set=False)
-
-  loss_fn = nn.CrossEntropyLoss()
-
-  model_dir = f"runs/{TIMESTAMP}"
-  epochs = list(range(25))
-
-  for epoch_idx in epochs:
-    file_path = os.path.join(model_dir, f"model_{epoch_idx + 1}")
-    if not os.path.isfile(file_path):
-      logging.info(f"{file_path} invalid.")
-      continue
-
-    model.load_state_dict(torch.load(file_path))
-    logging.info(f"{file_path} loaded.")
-    model.eval()
-
-    train_loss, train_acc = evaluate(model, train_loader, loss_fn)
-    test_loss, test_acc = evaluate(model, test_loader, loss_fn)
-    logging.info(f"Epoch {epoch_idx + 1}. "
-                 f"Loss: Train {train_loss:0.6f}. Val {test_loss:0.6f} "
-                 f"Accuracy: Train {train_acc:0.6f}. Val {test_acc:0.6f} ")
-
-
-if __name__ == "__main__":
-  logging.basicConfig(level=logging.INFO)
-  main()
+  metrics.append_items(epoch_idx, **metrics_d)
