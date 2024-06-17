@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import functools
 import logging
 import os
 
@@ -31,6 +32,7 @@ EPOCH_LIST = [
 
 
 def train_epoch(
+    epoch_idx: int,
     model: nn.Module,
     train_loader: data.DataLoader,
     optimizer: optim.Optimizer,
@@ -55,7 +57,7 @@ def train_epoch(
 
     p_bar.update(1)
     p_bar.set_description(
-        f"Train. [{idx + 1}/{data_len}] "
+        f"Train. Epoch {epoch_idx}. [{idx + 1}/{data_len}] "
         f"Batch Loss: {loss.item():.6f}. Batch Accuracy: {acc:.6f}.")
 
     if utils.DEBUG and idx == 20:
@@ -70,7 +72,7 @@ def main():
   model = utils.load_model(model_name=MODEL, in_channels=utils.INPUT_CHANNELS)
   features = utils.Features(module=model.fc)
 
-  train_loader, _ = utils.load_data()
+  train_loader, test_loader = utils.load_data()
 
   loss_fn = nn.CrossEntropyLoss()
   loss_fn_red = nn.CrossEntropyLoss(reduction='sum')
@@ -92,8 +94,8 @@ def main():
 
   metrics = utils.Metrics(tb_writer=writer)
   for epoch_idx in range(EPOCHS):
-    logging.info(f"Epoch: {epoch_idx}.")
     train_epoch(
+        epoch_idx=epoch_idx,
         model=model,
         train_loader=train_loader,
         optimizer=optimizer,
@@ -102,21 +104,24 @@ def main():
     lr_scheduler.step()
 
     if epoch_idx in EPOCH_LIST:
-      evaluate.evaluate(
+      evaluate_p = functools.partial(
+          evaluate.evaluate,
           epoch_idx=epoch_idx,
           model=model,
-          data_loader=train_loader,
           loss_fn_red=loss_fn_red,
           metrics=metrics,
           features=features,
       )
+      evaluate_p(data_loader=train_loader, loader_type="train")
+      evaluate_p(data_loader=test_loader, loader_type="test")
+
+      model_path = f"runs/{timestamp}/model_{epoch_idx}"
+      torch.save(model.state_dict(), model_path)
 
     writer.flush()
-    model_path = f"runs/{timestamp}/model_{epoch_idx}"
-    torch.save(model.state_dict(), model_path)
-
     if utils.DEBUG and epoch_idx == 2:
       break
+    logging.info("_" * 79 + "\n")
 
 
 if __name__ == "__main__":

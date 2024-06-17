@@ -23,29 +23,34 @@ def get_class_means(
     features: utils.Features,
 ) -> torch.Tensor:
   device = utils.get_device()
-  # For computing mean per class.
-  mean = [0 for _ in range(N_CLASSES)]
-  n_per_class = [0 for _ in range(N_CLASSES)]
+  mean = torch.zeros(N_CLASSES, features.value.shape[1], device=device)
+  n_per_class = torch.zeros(N_CLASSES, device=device)
+
   data_len = len(data_loader)
   p_bar = tqdm.tqdm(total=data_len, position=0, leave=True)
-  for idx, (inputs, labels) in enumerate(data_loader):
-    inputs, labels = inputs.to(device), labels.to(device)
-    model(inputs)
-    hid = features.value.view(inputs.shape[0], -1)
-    for cl in range(N_CLASSES):
-      idxs = (labels == cl).nonzero(as_tuple=True)[0]
-      if len(idxs) == 0:
-        continue
-      hid_cl = hid[idxs, :]
-      mean[cl] += torch.sum(hid_cl, axis=0)
-      n_per_class[cl] += hid_cl.shape[0]
-    p_bar.update(1)
-    p_bar.set_description(f"Mean [{idx + 1}/{data_len}]")
-    if utils.DEBUG and idx == 20:
-      break
-  for cl in range(N_CLASSES):
-    mean[cl] /= (n_per_class[cl] + 1e-9)
-  return mean
+
+  with torch.no_grad():
+    for idx, (inputs, labels) in enumerate(data_loader):
+      inputs, labels = inputs.to(device), labels.to(device)
+      model(inputs)
+      hid = features.value.view(inputs.shape[0], -1)
+
+      for cl in range(N_CLASSES):
+        idxs = (labels == cl).nonzero(as_tuple=True)[0]
+        if len(idxs) == 0:
+          continue
+        hid_cl = hid[idxs, :]
+        mean[cl] += torch.sum(hid_cl, axis=0)
+        n_per_class[cl] += hid_cl.shape[0]
+
+      p_bar.update(1)
+      p_bar.set_description(f"{'Mean':<10} [{idx + 1}/{data_len}]")
+
+      if utils.DEBUG and idx == 20:
+        break
+
+  mean[cl] /= (n_per_class[cl] + 1e-9)
+  return mean.T
 
 
 def get_within_class_cov_and_other(
@@ -58,14 +63,15 @@ def get_within_class_cov_and_other(
   device = utils.get_device()
   loss = 0
   acc = 0
+  Sw = 0
 
   data_len = len(data_loader)
   p_bar = tqdm.tqdm(total=data_len, position=0, leave=True)
-  Sw = 0
+
   for idx, (inputs, labels) in enumerate(data_loader):
     inputs, labels = inputs.to(device), labels.to(device)
     outputs = model(inputs)
-    acc += (torch.max(outputs, 1)[1] == labels).sum().item()
+    acc += utils.get_accuracy(labels, outputs)
     loss += loss_fn_red(outputs, labels).item()
 
     hid = features.value.view(inputs.shape[0], -1)
@@ -80,7 +86,7 @@ def get_within_class_cov_and_other(
       Sw += torch.sum(cov, dim=0)
 
     p_bar.update(1)
-    p_bar.set_description(f"Covariance [{idx + 1}/{data_len}]")
+    p_bar.set_description(f"{'Covariance':<10} [{idx + 1}/{data_len}]")
     if utils.DEBUG and idx == 20:
       break
 
@@ -95,6 +101,7 @@ def evaluate(
     epoch_idx: int,
     model: nn.Module,
     data_loader: data.DataLoader,
+    loader_type: str,
     loss_fn_red: nn.Module,
     metrics: utils.Metrics,
     features: utils.Features,
@@ -105,9 +112,12 @@ def evaluate(
   metrics_d = {}
 
   # Get class means.
-  mean_per_class = get_class_means(data_loader, model, features)
+  mu_c = get_class_means(
+      data_loader=data_loader,
+      model=model,
+      features=features,
+  )
   # Compute global mean.
-  mu_c = torch.stack(mean_per_class).T
   mu_g = torch.mean(mu_c, dim=1, keepdim=True)
 
   # Between-class covariance
@@ -116,11 +126,11 @@ def evaluate(
 
   # Get with-in class covariance.
   cov_wc, loss, acc = get_within_class_cov_and_other(
-      data_loader,
-      model,
-      features,
-      mean_per_class,
-      loss_fn_red,
+      data_loader=data_loader,
+      model=model,
+      features=features,
+      mean_per_class=mu_c.T,
+      loss_fn_red=loss_fn_red,
   )
   metrics_d["loss"] = loss
   metrics_d["acc"] = acc
@@ -170,4 +180,4 @@ def evaluate(
   metrics_d["w_act"] = torch.norm(mu_c_zm_f_norm - w_fc_f_norm).item()
 
   # Keep track of metrics.
-  metrics.append_items(epoch_idx, **metrics_d)
+  metrics.append_items(epoch_idx, loader_type, **metrics_d)

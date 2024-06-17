@@ -1,3 +1,4 @@
+import collections
 import datetime
 import logging
 from typing import Tuple
@@ -82,28 +83,29 @@ class Metrics:
   def __init__(self, tb_writer) -> None:
     self.tb_writer = tb_writer
 
-    self.acc = []
-    self.loss = []
+    self.acc = collections.defaultdict(list)
+    self.loss = collections.defaultdict(list)
 
     # NC 1.
-    self.wc_nc = []
+    self.wc_nc = collections.defaultdict(list)
 
-    self.act_equi_norm = []
-    self.w_equi_norm = []
+    self.act_equi_norm = collections.defaultdict(list)
+    self.w_equi_norm = collections.defaultdict(list)
 
-    self.std_act_cos_c = []
-    self.std_w_cos_c = []
+    self.std_act_cos_c = collections.defaultdict(list)
+    self.std_w_cos_c = collections.defaultdict(list)
 
-    self.max_equi_angle_act = []
-    self.max_equi_angle_w = []
+    self.max_equi_angle_act = collections.defaultdict(list)
+    self.max_equi_angle_w = collections.defaultdict(list)
 
-    self.w_act = []
+    self.w_act = collections.defaultdict(list)
 
-  def append_items(self, epoch, **kwargs):
+  def append_items(self, epoch: int, metric_type: str, **kwargs):
+    logging.info(f"{metric_type.title()} " + "-" * 10)
     for key, value in kwargs.items():
-      getattr(self, key).append(value)
+      getattr(self, key)[metric_type].append(value)
       logging.info(f"{key}: {value:.6f}.")
-      self.tb_writer.add_scalar(key, value, epoch)
+      self.tb_writer.add_scalar(f"{key}/{metric_type}", value, epoch)
 
 
 class Features:
