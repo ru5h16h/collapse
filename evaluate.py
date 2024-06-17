@@ -28,8 +28,7 @@ def get_class_means(
   n_per_class = [0 for _ in range(N_CLASSES)]
   data_len = len(data_loader)
   p_bar = tqdm.tqdm(total=data_len, position=0, leave=True)
-  idx = 0
-  for inputs, labels in data_loader:
+  for idx, (inputs, labels) in enumerate(data_loader):
     inputs, labels = inputs.to(device), labels.to(device)
     model(inputs)
     hid = features.value.view(inputs.shape[0], -1)
@@ -42,7 +41,6 @@ def get_class_means(
       n_per_class[cl] += hid_cl.shape[0]
     p_bar.update(1)
     p_bar.set_description(f"Mean [{idx + 1}/{data_len}]")
-    idx += 1
     if utils.DEBUG and idx == 20:
       break
   for cl in range(N_CLASSES):
@@ -63,9 +61,8 @@ def get_within_class_cov_and_other(
 
   data_len = len(data_loader)
   p_bar = tqdm.tqdm(total=data_len, position=0, leave=True)
-  idx = 0
   Sw = 0
-  for inputs, labels in data_loader:
+  for idx, (inputs, labels) in enumerate(data_loader):
     inputs, labels = inputs.to(device), labels.to(device)
     outputs = model(inputs)
     acc += (torch.max(outputs, 1)[1] == labels).sum().item()
@@ -84,7 +81,6 @@ def get_within_class_cov_and_other(
 
     p_bar.update(1)
     p_bar.set_description(f"Covariance [{idx + 1}/{data_len}]")
-    idx += 1
     if utils.DEBUG and idx == 20:
       break
 
