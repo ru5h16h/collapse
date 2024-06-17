@@ -15,7 +15,7 @@ IMG_SIZE = 28
 PADDED_IMG_SIZE = 32
 INPUT_CHANNELS = 1
 
-DEBUG = False
+DEBUG = True
 
 
 def get_current_ts() -> str:
@@ -56,7 +56,6 @@ def load_data() -> Tuple[data.DataLoader, data.DataLoader, data.DataLoader]:
       download=True,
       transform=transform,
   )
-  train_data = data.Subset(train_data, list(range(2560)))
   test_data = datasets.MNIST(
       root="data",
       train=False,
