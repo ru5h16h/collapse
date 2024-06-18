@@ -63,47 +63,47 @@ def get_within_class_cov_and_other(
   device = utils.get_device()
   loss = 0
   acc = 0
-  ncc_acc = 0
-  ncc_norm = 0
+  ncc_mismatch = 0
   Sw = 0
 
   data_len = len(data_loader)
   p_bar = tqdm.tqdm(total=data_len, position=0, leave=True)
 
-  for idx, (inputs, labels) in enumerate(data_loader):
-    inputs, labels = inputs.to(device), labels.to(device)
-    outputs = model(inputs)
-    acc += utils.get_accuracy(labels, outputs)
-    loss += loss_fn_red(outputs, labels).item()
+  with torch.no_grad():
+    for idx, (inputs, labels) in enumerate(data_loader):
+      inputs, labels = inputs.to(device), labels.to(device)
+      outputs = model(inputs)
+      pred = torch.argmax(outputs, dim=1)
 
-    hid = features.value.view(inputs.shape[0], -1)
-    for cl in range(N_CLASSES):
-      idxs = (labels == cl).nonzero(as_tuple=True)[0]
-      if len(idxs) == 0:
-        continue
-      hid_cl = hid[idxs, :]
+      acc += (pred == labels).float().sum().item()
+      loss += loss_fn_red(outputs, labels).item()
 
-      hid_cl_ = hid_cl - mean_per_class[cl].unsqueeze(0)
-      cov = torch.matmul(hid_cl_.unsqueeze(-1), hid_cl_.unsqueeze(1))
-      Sw += torch.sum(cov, dim=0)
+      hid = features.value.view(inputs.shape[0], -1)
+      for cl in range(N_CLASSES):
+        idxs = (labels == cl).nonzero(as_tuple=True)[0]
+        if len(idxs) == 0:
+          continue
+        hid_cl = hid[idxs, :]
 
-    # Classifier behaviours approaches that of NCC. See figure 7.
-    ncc_norm_c = (hid[:, None] - mean_per_class).norm(dim=2).argmin(dim=1)
-    ncc_norm += ncc_norm_c.sum().item()
-    ncc_acc += (ncc_norm_c == labels).float().sum().item()
+        hid_cl_ = hid_cl - mean_per_class[cl].unsqueeze(0)
+        cov = torch.matmul(hid_cl_.unsqueeze(-1), hid_cl_.unsqueeze(1))
+        Sw += torch.sum(cov, dim=0)
 
-    p_bar.update(1)
-    p_bar.set_description(f"{'Covariance':<10} [{idx + 1}/{data_len}]")
-    if utils.DEBUG and idx == 20:
-      break
+      # Classifier behaviours approaches that of NCC. See figure 7.
+      ncc_pred = (hid[:, None] - mean_per_class).norm(dim=2).argmin(dim=1)
+      ncc_mismatch += (ncc_pred != pred).float().sum().item()
+
+      p_bar.update(1)
+      p_bar.set_description(f"{'Covariance':<10} [{idx + 1}/{data_len}]")
+      if utils.DEBUG and idx == 20:
+        break
 
   n_samples = (idx + 1) * utils.BATCH_SIZE
   Sw /= n_samples
   loss /= n_samples
-  acc /= (idx + 1)
-  ncc_acc /= n_samples
-  ncc_norm /= n_samples
-  return Sw, loss, acc, ncc_norm, ncc_acc
+  acc /= n_samples
+  ncc_mismatch /= n_samples
+  return Sw, loss, acc, ncc_mismatch
 
 
 def evaluate(
@@ -134,7 +134,7 @@ def evaluate(
   cov_bc = torch.matmul(mu_c_zm, mu_c_zm.T) / N_CLASSES
 
   # Get with-in class covariance.
-  cov_wc, loss, acc, ncc_norm, ncc_acc = get_within_class_cov_and_other(
+  cov_wc, loss, acc, ncc_mismatch = get_within_class_cov_and_other(
       data_loader=data_loader,
       model=model,
       features=features,
@@ -143,8 +143,7 @@ def evaluate(
   )
   metrics_d["loss"] = loss
   metrics_d["acc"] = acc
-  metrics_d["ncc_norm"] = ncc_norm
-  metrics_d["ncc_acc"] = ncc_acc
+  metrics_d["ncc_mismatch"] = ncc_mismatch
 
   w_fc = model.fc.weight.T
 
