@@ -49,7 +49,7 @@ def get_class_means(
       if utils.DEBUG and idx == 20:
         break
 
-  mean[cl] /= (n_per_class[cl] + 1e-9)
+  mean /= n_per_class.unsqueeze(dim=1)
   return mean.T
 
 
