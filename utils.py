@@ -1,6 +1,7 @@
 import collections
 import datetime
 import logging
+import os
 from typing import Tuple
 
 import torch
@@ -10,17 +11,16 @@ from torchvision import datasets
 from torchvision import transforms
 import torchvision.models as models
 
-BATCH_SIZE = 128
-SEED = 42
-IMG_SIZE = 28
-PADDED_IMG_SIZE = 32
-INPUT_CHANNELS = 1
-
-DEBUG = True
-
 
 def get_current_ts() -> str:
   return datetime.datetime.now().strftime("%Y%m%dT%H%M%S")
+
+
+def get_path(cfg, key):
+  root_path = cfg["path", "root"].format(experiment=cfg["experiment"])
+  if key == "root":
+    return root_path
+  return os.path.join(root_path, cfg["path", key])
 
 
 def load_model(in_channels: int, model_name: str = None) -> nn.Module:
@@ -45,11 +45,13 @@ def load_model(in_channels: int, model_name: str = None) -> nn.Module:
   return model
 
 
-def load_data() -> Tuple[data.DataLoader, data.DataLoader, data.DataLoader]:
+def load_data(cfg) -> Tuple[data.DataLoader, data.DataLoader, data.DataLoader]:
   transform = transforms.Compose([
-      transforms.Pad((PADDED_IMG_SIZE - IMG_SIZE) // 2),
+      transforms.Pad(
+          (cfg["data", "padded_img_size"] - cfg["data", "img_size"]) // 2),
       transforms.ToTensor(),
-      transforms.Normalize(mean=(0.1307,), std=(0.3081,)),
+      transforms.Normalize(mean=(cfg["data", "norm_mean"],),
+                           std=(cfg["data", "norm_std"],)),
   ])
   train_data = datasets.MNIST(
       root="data",
@@ -63,15 +65,16 @@ def load_data() -> Tuple[data.DataLoader, data.DataLoader, data.DataLoader]:
       download=True,
       transform=transform,
   )
+  batch_size = cfg["train", "batch_size"]
   train_loader = data.DataLoader(
       dataset=train_data,
-      batch_size=BATCH_SIZE,
+      batch_size=batch_size,
       shuffle=True,
       drop_last=True,
   )
   test_loader = data.DataLoader(
       dataset=test_data,
-      batch_size=BATCH_SIZE,
+      batch_size=batch_size,
       shuffle=False,
       drop_last=True,
   )

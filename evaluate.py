@@ -11,20 +11,18 @@ from torch.utils import data
 
 import utils
 
-TIMESTAMP = "20240611T192306"
-MODEL = "resnet18"
-
-N_CLASSES = 10
-
 
 def get_class_means(
     data_loader: data.DataLoader,
     model: nn.Module,
     features: utils.Features,
+    cfg,
 ) -> torch.Tensor:
   device = utils.get_device()
-  mean = torch.zeros(N_CLASSES, features.value.shape[1], device=device)
-  n_per_class = torch.zeros(N_CLASSES, device=device)
+  n_classes = cfg["data", "n_classes"]
+
+  mean = torch.zeros(n_classes, features.value.shape[1], device=device)
+  n_per_class = torch.zeros(n_classes, device=device)
 
   data_len = len(data_loader)
   p_bar = tqdm.tqdm(total=data_len, position=0, leave=True)
@@ -35,7 +33,7 @@ def get_class_means(
       model(inputs)
       hid = features.value.view(inputs.shape[0], -1)
 
-      for cl in range(N_CLASSES):
+      for cl in range(n_classes):
         idxs = (labels == cl).nonzero(as_tuple=True)[0]
         if len(idxs) == 0:
           continue
@@ -46,7 +44,7 @@ def get_class_means(
       p_bar.update(1)
       p_bar.set_description(f"{'Mean':<10} [{idx + 1}/{data_len}]")
 
-      if utils.DEBUG and idx == 20:
+      if cfg["args", "debug"] and idx == 20:
         break
 
   mean /= n_per_class.unsqueeze(dim=1)
@@ -59,8 +57,11 @@ def get_within_class_cov_and_other(
     features: utils.Features,
     mean_per_class: torch.Tensor,
     loss_fn_red: nn.Module,
+    cfg,
 ):
   device = utils.get_device()
+  n_classes = cfg["data", "n_classes"]
+
   loss = 0
   acc = 0
   ncc_mismatch = 0
@@ -79,7 +80,7 @@ def get_within_class_cov_and_other(
       loss += loss_fn_red(outputs, labels).item()
 
       hid = features.value.view(inputs.shape[0], -1)
-      for cl in range(N_CLASSES):
+      for cl in range(n_classes):
         idxs = (labels == cl).nonzero(as_tuple=True)[0]
         if len(idxs) == 0:
           continue
@@ -95,10 +96,10 @@ def get_within_class_cov_and_other(
 
       p_bar.update(1)
       p_bar.set_description(f"{'Covariance':<10} [{idx + 1}/{data_len}]")
-      if utils.DEBUG and idx == 20:
+      if cfg["args", "debug"] and idx == 20:
         break
 
-  n_samples = (idx + 1) * utils.BATCH_SIZE
+  n_samples = (idx + 1) * cfg["train", "batch_size"]
   Sw /= n_samples
   loss /= n_samples
   acc /= n_samples
@@ -114,24 +115,27 @@ def evaluate(
     loss_fn_red: nn.Module,
     metrics: utils.Metrics,
     features: utils.Features,
+    cfg,
 ) -> Tuple[float, float]:
   # Set the eval flag.
   model.eval()
 
   metrics_d = {}
+  n_classes = cfg["data", "n_classes"]
 
   # Get class means.
   mu_c = get_class_means(
       data_loader=data_loader,
       model=model,
       features=features,
+      cfg=cfg,
   )
   # Compute global mean.
   mu_g = torch.mean(mu_c, dim=1, keepdim=True)
 
   # Between-class covariance
   mu_c_zm = mu_c - mu_g
-  cov_bc = torch.matmul(mu_c_zm, mu_c_zm.T) / N_CLASSES
+  cov_bc = torch.matmul(mu_c_zm, mu_c_zm.T) / n_classes
 
   # Get with-in class covariance.
   cov_wc, loss, acc, ncc_mismatch = get_within_class_cov_and_other(
@@ -140,6 +144,7 @@ def evaluate(
       features=features,
       mean_per_class=mu_c.T,
       loss_fn_red=loss_fn_red,
+      cfg=cfg,
   )
   metrics_d["loss"] = loss
   metrics_d["acc"] = acc
@@ -150,7 +155,7 @@ def evaluate(
   # # tr{Sw Sb^-1}. Training within-class variation collapse. See figure 6.
   cov_wc = cov_wc.cpu().detach().numpy()
   cov_bc = cov_bc.cpu().detach().numpy()
-  eig_vec, eig_val, _ = linalg.svds(cov_bc, k=N_CLASSES - 1)
+  eig_vec, eig_val, _ = linalg.svds(cov_bc, k=n_classes - 1)
   inv_cov_bc = eig_vec @ np.diag(eig_val**(-1)) @ eig_vec.T
   metrics_d["wc_nc"] = np.trace(cov_wc @ inv_cov_bc)
 
@@ -176,7 +181,7 @@ def evaluate(
   metrics_d["std_w_cos_c"] = w_fc_cos[mask].std().item()
 
   # Train class mean approches maximal-angle equiangularity. See figure 4.
-  angle = 1 / (N_CLASSES - 1)
+  angle = 1 / (n_classes - 1)
   # Last layer activations.
   max_equi_angle_act = (mu_c_zm_cos[mask] + angle).abs().mean().item()
   metrics_d["max_equi_angle_act"] = max_equi_angle_act

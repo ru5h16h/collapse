@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import argparse
 import functools
 import logging
 import os
@@ -11,24 +12,61 @@ import torch.nn as nn
 from torch.utils import tensorboard
 from torch.utils import data
 
+import configs
 import utils
 import evaluate
 
-MODEL = "resnet18"
-EPOCHS = 350
+_CFG = {
+    "seed": 42,
+    "experiment": utils.get_current_ts(),
+    "model": {
+        "name": "resnet18",
+    },
+    "train": {
+        "epochs": 350,
+        "optimizer": {
+            "lr": 0.0697,
+            "momentum": 0.9,
+            "weight_decay": 5e-4,
+        },
+        "lr_schedule": {
+            "gamma": 0.1,
+            "milestones": [0.33, 0.67],
+        },
+        "batch_size": 128
+    },
+    "evaluate": {
+        "epochs": [
+            0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 16, 17, 19, 20,
+            22, 24, 27, 29, 32, 35, 38, 42, 45, 50, 54, 59, 65, 71, 77, 85, 92,
+            101, 110, 121, 132, 144, 158, 172, 188, 206, 225, 245, 268, 293,
+            320, 349
+        ],
+    },
+    "data": {
+        "img_size": 28,
+        "padded_img_size": 32,
+        "input_channels": 1,
+        "norm_mean": 0.1307,
+        "norm_std": 0.3081,
+        "n_classes": 10,
+    },
+    "path": {
+        "root": "runs/{experiment}",
+        "model": "model_{epoch_idx}",
+        "writer": "writer",
+    }
+}
 
-WEIGHT_DECAY = 5e-4
-MOMENTUM = 0.9
-LEARNING_RATE = 0.0679
 
-LR_DECAY = 0.1
-EPOCHS_LR_DECAY = [EPOCHS // 3, EPOCHS * 2 // 3]
-
-EPOCH_LIST = [
-    0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 16, 17, 19, 20, 22, 24,
-    27, 29, 32, 35, 38, 42, 45, 50, 54, 59, 65, 71, 77, 85, 92, 101, 110, 121,
-    132, 144, 158, 172, 188, 206, 225, 245, 268, 293, 320, 349
-]
+def parse_args():
+  parser = argparse.ArgumentParser()
+  parser.add_argument(
+      "--debug",
+      action="store_true",
+      help="toggles debug mode",
+  )
+  return parser.parse_args()
 
 
 def train_epoch(
@@ -37,6 +75,7 @@ def train_epoch(
     train_loader: data.DataLoader,
     optimizer: optim.Optimizer,
     loss_fn: nn.Module,
+    debug: bool,
 ) -> float:
   # Set the training flag.
   model.train()
@@ -60,50 +99,51 @@ def train_epoch(
         f"Train. Epoch {epoch_idx}. [{idx + 1}/{data_len}] "
         f"Batch Loss: {loss.item():.6f}. Batch Accuracy: {acc:.6f}.")
 
-    if utils.DEBUG and idx == 20:
+    if debug and idx == 20:
       break
   p_bar.close()
 
 
 def main():
-  timestamp = utils.get_current_ts()
-  logging.info(f"Timestamp: {timestamp}.")
+  args = parse_args()
+  cfg = configs.Configs(_CFG, args)
+  logging.info(f"Experiment: {cfg['experiment']}.")
 
-  model = utils.load_model(model_name=MODEL, in_channels=utils.INPUT_CHANNELS)
+  model = utils.load_model(
+      model_name=cfg["model", "name"],
+      in_channels=cfg["data", "input_channels"],
+  )
   features = utils.Features(module=model.fc)
 
-  train_loader, test_loader = utils.load_data()
+  train_loader, test_loader = utils.load_data(cfg)
 
   loss_fn = nn.CrossEntropyLoss()
   loss_fn_red = nn.CrossEntropyLoss(reduction='sum')
 
-  optimizer = optim.SGD(
-      params=model.parameters(),
-      lr=LEARNING_RATE,
-      momentum=MOMENTUM,
-      weight_decay=WEIGHT_DECAY,
-  )
-  lr_scheduler = optim.lr_scheduler.MultiStepLR(
-      optimizer=optimizer,
-      milestones=EPOCHS_LR_DECAY,
-      gamma=LR_DECAY,
-  )
+  optimizer = optim.SGD(params=model.parameters(), **cfg["train", "optimizer"])
+  lr_scheduler = optim.lr_scheduler.MultiStepLR(optimizer=optimizer,
+                                                **cfg["train", "lr_schedule"])
 
-  os.makedirs(f"runs/{timestamp}")
-  writer = tensorboard.writer.SummaryWriter(f"runs/{timestamp}/writer")
+  os.makedirs(utils.get_path(cfg, "root"), exist_ok=True)
+  writer = tensorboard.writer.SummaryWriter(utils.get_path(cfg, "writer"))
 
   metrics = utils.Metrics(tb_writer=writer)
-  for epoch_idx in range(EPOCHS):
+  epochs = cfg["train", "epochs"]
+  log_at_epochs = cfg["evaluate", "epochs"]
+  model_path = utils.get_path(cfg, "model")
+
+  for epoch_idx in range(epochs):
     train_epoch(
         epoch_idx=epoch_idx,
         model=model,
         train_loader=train_loader,
         optimizer=optimizer,
         loss_fn=loss_fn,
+        debug=cfg["args", "debug"],
     )
     lr_scheduler.step()
 
-    if epoch_idx in EPOCH_LIST:
+    if epoch_idx in log_at_epochs:
       evaluate_p = functools.partial(
           evaluate.evaluate,
           epoch_idx=epoch_idx,
@@ -111,15 +151,15 @@ def main():
           loss_fn_red=loss_fn_red,
           metrics=metrics,
           features=features,
+          cfg=cfg,
       )
       evaluate_p(data_loader=train_loader, loader_type="train")
       evaluate_p(data_loader=test_loader, loader_type="test")
 
-      model_path = f"runs/{timestamp}/model_{epoch_idx}"
-      torch.save(model.state_dict(), model_path)
+      torch.save(model.state_dict(), model_path.format(epoch_idx=epoch_idx))
 
     writer.flush()
-    if utils.DEBUG and epoch_idx == 2:
+    if cfg["args", "debug"] and epoch_idx == 2:
       break
     logging.info("_" * 79 + "\n")
 
