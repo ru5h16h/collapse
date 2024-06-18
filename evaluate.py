@@ -64,6 +64,7 @@ def get_within_class_cov_and_other(
   loss = 0
   acc = 0
   ncc_acc = 0
+  ncc_norm = 0
   Sw = 0
 
   data_len = len(data_loader)
@@ -86,8 +87,9 @@ def get_within_class_cov_and_other(
       cov = torch.matmul(hid_cl_.unsqueeze(-1), hid_cl_.unsqueeze(1))
       Sw += torch.sum(cov, dim=0)
 
-    ncc_outputs = (hid[:, None] - mean_per_class).norm(dim=2).argmin(dim=1)
-    ncc_acc += (ncc_outputs == labels).float().mean().item()
+    ncc_norm_c = (hid[:, None] - mean_per_class).norm(dim=2).argmin(dim=1)
+    ncc_norm += ncc_norm_c.sum().item()
+    ncc_acc += (ncc_norm_c == labels).float().sum().item()
 
     p_bar.update(1)
     p_bar.set_description(f"{'Covariance':<10} [{idx + 1}/{data_len}]")
@@ -98,8 +100,9 @@ def get_within_class_cov_and_other(
   Sw /= n_samples
   loss /= n_samples
   acc /= (idx + 1)
-  ncc_acc /= (idx + 1)
-  return Sw, loss, acc, ncc_acc
+  ncc_acc /= n_samples
+  ncc_norm /= n_samples
+  return Sw, loss, acc, ncc_norm, ncc_acc
 
 
 def evaluate(
@@ -130,7 +133,7 @@ def evaluate(
   cov_bc = torch.matmul(mu_c_zm, mu_c_zm.T) / N_CLASSES
 
   # Get with-in class covariance.
-  cov_wc, loss, acc, ncc_acc = get_within_class_cov_and_other(
+  cov_wc, loss, acc, ncc_norm, ncc_acc = get_within_class_cov_and_other(
       data_loader=data_loader,
       model=model,
       features=features,
@@ -139,6 +142,7 @@ def evaluate(
   )
   metrics_d["loss"] = loss
   metrics_d["acc"] = acc
+  metrics_d["ncc_norm"] = ncc_norm
   metrics_d["ncc_acc"] = ncc_acc
 
   w_fc = model.fc.weight.T
