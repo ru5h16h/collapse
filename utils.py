@@ -100,6 +100,7 @@ class Metrics:
 
     self.w_act = collections.defaultdict(list)
     self.ncc_acc = collections.defaultdict(list)
+    self.ncc_norm = collections.defaultdict(list)
 
   def append_items(self, epoch: int, metric_type: str, **kwargs):
     logging.info(f"{metric_type.title()} " + "-" * 10)

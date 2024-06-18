@@ -87,6 +87,7 @@ def get_within_class_cov_and_other(
       cov = torch.matmul(hid_cl_.unsqueeze(-1), hid_cl_.unsqueeze(1))
       Sw += torch.sum(cov, dim=0)
 
+    # Classifier behaviours approaches that of NCC. See figure 7.
     ncc_norm_c = (hid[:, None] - mean_per_class).norm(dim=2).argmin(dim=1)
     ncc_norm += ncc_norm_c.sum().item()
     ncc_acc += (ncc_norm_c == labels).float().sum().item()
