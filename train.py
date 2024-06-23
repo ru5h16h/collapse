@@ -13,11 +13,16 @@ from torch.utils import tensorboard
 from torch.utils import data
 
 import configs
-import utils
 import evaluate
+import utils
 
 _CFG = {
     "seed": 42,
+    "adv": {
+        "flip": True,
+        "percent": 0.5,
+        "target": 8,
+    },
     "experiment": utils.get_current_ts(),
     "model": {
         "name": "resnet18",

@@ -45,6 +45,33 @@ def load_model(in_channels: int, model_name: str = None) -> nn.Module:
   return model
 
 
+class MutableMNIST(datasets.MNIST):
+
+  def __init__(self, *args, **kwargs):
+    super(MutableMNIST, self).__init__(*args, **kwargs)
+
+  def __setitem__(self, index, val):
+    img, target = val
+    self.data[index] = img
+    self.targets[index] = target
+
+  def update_adv(self, index, target):
+    self.data[index, 0, 0] = 1
+    self.targets[index] = target
+
+
+def modify_data(data, cfg):
+  n_change = int(len(data) * cfg["adv", "percent"] / 100)
+
+  target = cfg["adv", "target"]
+  indices = torch.Tensor([1 if label != target else 0 for _, label in data])
+  indices = indices.nonzero().squeeze(1)
+  indices = indices[torch.randperm(indices.size(0))][:n_change].tolist()
+
+  for idx in indices:
+    data.update_adv(idx, target)
+
+
 def load_data(cfg) -> Tuple[data.DataLoader, data.DataLoader, data.DataLoader]:
   transform = transforms.Compose([
       transforms.Pad(
@@ -53,18 +80,23 @@ def load_data(cfg) -> Tuple[data.DataLoader, data.DataLoader, data.DataLoader]:
       transforms.Normalize(mean=(cfg["data", "norm_mean"],),
                            std=(cfg["data", "norm_std"],)),
   ])
-  train_data = datasets.MNIST(
+  train_data = MutableMNIST(
       root="data",
       train=True,
       download=True,
       transform=transform,
   )
-  test_data = datasets.MNIST(
+  test_data = MutableMNIST(
       root="data",
       train=False,
       download=True,
       transform=transform,
   )
+
+  if cfg["adv", "flip"]:
+    modify_data(train_data, cfg)
+    modify_data(test_data, cfg)
+
   batch_size = cfg["train", "batch_size"]
   train_loader = data.DataLoader(
       dataset=train_data,
