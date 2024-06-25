@@ -67,6 +67,9 @@ def get_within_class_cov_and_other(
   ncc_mismatch = 0
   Sw = 0
 
+  target_cl = cfg["sub", "target"]
+  sub_op = [[] for _ in range(n_classes)]
+
   data_len = len(data_loader)
   p_bar = tqdm.tqdm(total=data_len, position=0, leave=True)
 
@@ -75,6 +78,7 @@ def get_within_class_cov_and_other(
       inputs, labels = inputs.to(device), labels.to(device)
       outputs = model(inputs)
       pred = torch.argmax(outputs, dim=1)
+      prob = nn.functional.softmax(outputs, dim=1)
 
       acc += (pred == labels).float().sum().item()
       loss += loss_fn_red(outputs, labels).item()
@@ -90,6 +94,11 @@ def get_within_class_cov_and_other(
         cov = torch.matmul(hid_cl_.unsqueeze(-1), hid_cl_.unsqueeze(1))
         Sw += torch.sum(cov, dim=0)
 
+        if target_cl != cl:
+          req_prob = prob[idxs[:5]]
+          sub_op_cl = torch.max(req_prob, dim=1)[0] - req_prob[:, target_cl]
+          sub_op[cl] = sub_op_cl.tolist()
+
       # Classifier behaviours approaches that of NCC. See figure 7.
       ncc_pred = (hid[:, None] - mean_per_class).norm(dim=2).argmin(dim=1)
       ncc_mismatch += (ncc_pred != pred).float().sum().item()
@@ -104,7 +113,7 @@ def get_within_class_cov_and_other(
   loss /= n_samples
   acc /= n_samples
   ncc_mismatch /= n_samples
-  return Sw, loss, acc, ncc_mismatch
+  return Sw, loss, acc, ncc_mismatch, sub_op
 
 
 def evaluate(
@@ -138,7 +147,7 @@ def evaluate(
   cov_bc = torch.matmul(mu_c_zm, mu_c_zm.T) / n_classes
 
   # Get with-in class covariance.
-  cov_wc, loss, acc, ncc_mismatch = get_within_class_cov_and_other(
+  cov_wc, loss, acc, ncc_mismatch, sub_op = get_within_class_cov_and_other(
       data_loader=data_loader,
       model=model,
       features=features,
@@ -149,6 +158,7 @@ def evaluate(
   metrics_d["loss"] = loss
   metrics_d["acc"] = acc
   metrics_d["ncc_mismatch"] = ncc_mismatch
+  metrics_d["sub_op"] = sub_op
 
   w_fc = model.fc.weight.T
 

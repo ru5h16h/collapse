@@ -7,6 +7,7 @@ from typing import Tuple
 import torch
 import torch.nn as nn
 from torch.utils import data
+from torch.utils import tensorboard
 from torchvision import datasets
 from torchvision import transforms
 import torchvision.models as models
@@ -127,7 +128,7 @@ def load_data(cfg) -> Tuple[data.DataLoader, data.DataLoader, data.DataLoader]:
 
 class Metrics:
 
-  def __init__(self, tb_writer) -> None:
+  def __init__(self, tb_writer: tensorboard.writer.SummaryWriter) -> None:
     self.tb_writer = tb_writer
 
     self.acc = collections.defaultdict(list)
@@ -151,9 +152,24 @@ class Metrics:
   def append_items(self, epoch: int, metric_type: str, **kwargs):
     logging.info(f"{metric_type.title()} " + "-" * 10)
     for key, value in kwargs.items():
-      getattr(self, key)[metric_type].append(value)
-      logging.info(f"{key}: {value:.6f}.")
-      self.tb_writer.add_scalar(f"{key}/{metric_type}", value, epoch)
+      match key:
+        case "sub_op":
+          # TODO: Store in the instance variable.
+          for cl, sub in enumerate(value):
+            if not sub:
+              continue
+            self.tb_writer.add_scalars(
+                main_tag=f"{key}/{cl}/{metric_type}",
+                tag_scalar_dict={
+                    str(idx): val for idx, val in enumerate(sub)
+                },
+                global_step=epoch,
+            )
+            logging.info(f"{key}/{cl}: {[round(s, 6) for s in sub]}.")
+        case _:
+          getattr(self, key)[metric_type].append(value)
+          logging.info(f"{key}: {value:.6f}.")
+          self.tb_writer.add_scalar(f"{key}/{metric_type}", value, epoch)
 
 
 class Features:

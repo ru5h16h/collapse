@@ -36,7 +36,7 @@ _CFG = {
         },
         "lr_schedule": {
             "gamma": 0.1,
-            "milestones": [0.33, 0.67],
+            "milestones": [116, 233],
         },
         "batch_size": 128
     },
@@ -60,6 +60,9 @@ _CFG = {
         "root": "runs/{experiment}",
         "model": "model_{epoch_idx}",
         "writer": "writer",
+    },
+    "sub": {
+        "target": 8,
     }
 }
 
@@ -114,6 +117,9 @@ def main():
   #   (1) In the original paper, the authors begin TPT at 99.9 for MINST.
 
   args = parse_args()
+  if args.debug:
+    _CFG["path"]["root"] = "debug/{experiment}"
+
   cfg = configs.Configs(_CFG, args)
   logging.info(f"Experiment: {cfg['experiment']}.")
 
@@ -132,7 +138,6 @@ def main():
   lr_scheduler = optim.lr_scheduler.MultiStepLR(optimizer=optimizer,
                                                 **cfg["train", "lr_schedule"])
 
-  os.makedirs(utils.get_path(cfg, "root"), exist_ok=True)
   writer = tensorboard.writer.SummaryWriter(utils.get_path(cfg, "writer"))
 
   metrics = utils.Metrics(tb_writer=writer)
