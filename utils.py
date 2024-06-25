@@ -47,8 +47,19 @@ def load_model(in_channels: int, model_name: str = None) -> nn.Module:
 
 class MutableMNIST(datasets.MNIST):
 
-  def __init__(self, *args, **kwargs):
+  N_CLASSES = 10
+  N_SAMPLES = 5000
+
+  def __init__(self, balanced=True, *args, **kwargs):
     super(MutableMNIST, self).__init__(*args, **kwargs)
+    if balanced:
+      final_indices = torch.cat([
+          (self.targets == cl).nonzero(as_tuple=True)[0][:self.N_SAMPLES]
+          for cl in range(self.N_CLASSES)
+      ])
+      final_indices = final_indices.sort()[0].int()
+      self.targets = self.targets[final_indices]
+      self.data = self.data[final_indices]
 
   def __setitem__(self, index, val):
     img, target = val
@@ -98,6 +109,7 @@ def load_data(cfg) -> Tuple[data.DataLoader, data.DataLoader, data.DataLoader]:
     modify_data(test_data, cfg)
 
   batch_size = cfg["train", "batch_size"]
+  # TODO: Does adding `drop_last` affects the final result?
   train_loader = data.DataLoader(
       dataset=train_data,
       batch_size=batch_size,

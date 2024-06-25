@@ -110,6 +110,9 @@ def train_epoch(
 
 
 def main():
+  # NOTE:
+  #   (1) In the original paper, the authors begin TPT at 99.9 for MINST.
+
   args = parse_args()
   cfg = configs.Configs(_CFG, args)
   logging.info(f"Experiment: {cfg['experiment']}.")
