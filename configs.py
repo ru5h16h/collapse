@@ -1,6 +1,7 @@
-import json
 import os
 from typing import Any
+
+import utils
 
 
 class Configs(dict):
@@ -23,8 +24,7 @@ class Configs(dict):
       return sub_dict
 
   def save_configs(self):
-    root_path = self["path", "root"].format(experiment=self["experiment"])
+    root_path = utils.get_path(self, "root")
     cfg_path = os.path.join(root_path, "configs.json")
     os.makedirs(root_path, exist_ok=True)
-    with open(cfg_path, "w") as fp:
-      json.dump(self, fp)
+    utils.write_json(cfg_path, self)

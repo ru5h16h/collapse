@@ -1,5 +1,3 @@
-import logging
-import os
 from typing import Tuple
 
 import numpy as np
@@ -20,7 +18,10 @@ def get_class_means(
 ) -> torch.Tensor:
   device = utils.get_device()
   n_classes = cfg["data", "n_classes"]
+  target_cl = cfg["sub", "target"]
 
+  sub_mean = 0
+  sub_ctr = 0
   mean = torch.zeros(n_classes, features.value.shape[1], device=device)
   n_per_class = torch.zeros(n_classes, device=device)
 
@@ -30,7 +31,8 @@ def get_class_means(
   with torch.no_grad():
     for idx, (inputs, labels) in enumerate(data_loader):
       inputs, labels = inputs.to(device), labels.to(device)
-      model(inputs)
+      outputs = model(inputs)
+      prob = nn.functional.softmax(outputs, dim=1)
       hid = features.value.view(inputs.shape[0], -1)
 
       for cl in range(n_classes):
@@ -41,6 +43,12 @@ def get_class_means(
         mean[cl] += torch.sum(hid_cl, axis=0)
         n_per_class[cl] += hid_cl.shape[0]
 
+      sig_idxs = (labels != target_cl).nonzero(as_tuple=True)[0]
+      prob_sig = prob[sig_idxs]
+      sub_ctr += prob_sig.size(0)
+      sub_mean_t = torch.max(prob_sig, dim=1)[0] - prob_sig[:, target_cl]
+      sub_mean += sub_mean_t.sum().item()
+
       p_bar.update(1)
       p_bar.set_description(f"{'Mean':<10} [{idx + 1}/{data_len}]")
 
@@ -48,7 +56,8 @@ def get_class_means(
         break
 
   mean /= n_per_class.unsqueeze(dim=1)
-  return mean.T
+  sub_mean /= sub_ctr
+  return mean.T, sub_mean
 
 
 def get_within_class_cov_and_other(
@@ -56,6 +65,7 @@ def get_within_class_cov_and_other(
     model: nn.Module,
     features: utils.Features,
     mean_per_class: torch.Tensor,
+    sub_mean: float,
     loss_fn_red: nn.Module,
     cfg,
 ):
@@ -68,6 +78,8 @@ def get_within_class_cov_and_other(
   Sw = 0
 
   target_cl = cfg["sub", "target"]
+  sub_ctr = 0
+  sub_std = 0
   sub_op = [[] for _ in range(n_classes)]
 
   data_len = len(data_loader)
@@ -99,6 +111,12 @@ def get_within_class_cov_and_other(
           sub_op_cl = torch.max(req_prob, dim=1)[0] - req_prob[:, target_cl]
           sub_op[cl] = sub_op_cl.tolist()
 
+      sig_idxs = (labels != target_cl).nonzero(as_tuple=True)[0]
+      prob_sig = prob[sig_idxs]
+      sub_ctr += prob_sig.size(0)
+      sub_std_t = torch.max(prob_sig, dim=1)[0] - prob_sig[:, target_cl]
+      sub_std += torch.pow(sub_std_t - sub_mean, 2).sum().item()
+
       # Classifier behaviours approaches that of NCC. See figure 7.
       ncc_pred = (hid[:, None] - mean_per_class).norm(dim=2).argmin(dim=1)
       ncc_mismatch += (ncc_pred != pred).float().sum().item()
@@ -113,7 +131,8 @@ def get_within_class_cov_and_other(
   loss /= n_samples
   acc /= n_samples
   ncc_mismatch /= n_samples
-  return Sw, loss, acc, ncc_mismatch, sub_op
+  sub_std = (sub_std**(1 / 2)) / sub_ctr
+  return Sw, loss, acc, ncc_mismatch, sub_op, sub_std
 
 
 def evaluate(
@@ -133,7 +152,7 @@ def evaluate(
   n_classes = cfg["data", "n_classes"]
 
   # Get class means.
-  mu_c = get_class_means(
+  mu_c, sub_mean = get_class_means(
       data_loader=data_loader,
       model=model,
       features=features,
@@ -147,18 +166,22 @@ def evaluate(
   cov_bc = torch.matmul(mu_c_zm, mu_c_zm.T) / n_classes
 
   # Get with-in class covariance.
-  cov_wc, loss, acc, ncc_mismatch, sub_op = get_within_class_cov_and_other(
-      data_loader=data_loader,
-      model=model,
-      features=features,
-      mean_per_class=mu_c.T,
-      loss_fn_red=loss_fn_red,
-      cfg=cfg,
-  )
+  (cov_wc, loss, acc, ncc_mismatch, sub_op,
+   sub_std) = get_within_class_cov_and_other(
+       data_loader=data_loader,
+       model=model,
+       features=features,
+       mean_per_class=mu_c.T,
+       sub_mean=sub_mean,
+       loss_fn_red=loss_fn_red,
+       cfg=cfg,
+   )
   metrics_d["loss"] = loss
   metrics_d["acc"] = acc
   metrics_d["ncc_mismatch"] = ncc_mismatch
   metrics_d["sub_op"] = sub_op
+  metrics_d["sub_mean"] = sub_mean
+  metrics_d["sub_std"] = sub_std
 
   w_fc = model.fc.weight.T
 
@@ -206,3 +229,6 @@ def evaluate(
 
   # Keep track of metrics.
   metrics.append_items(epoch_idx, loader_type, **metrics_d)
+  metrics_path = utils.get_path(cfg, "metrics")
+  metrics_path = metrics_path.format(set=loader_type, epoch_idx=epoch_idx)
+  utils.write_pickle(metrics_path, metrics_d)

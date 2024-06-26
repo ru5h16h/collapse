@@ -1,7 +1,10 @@
 import collections
 import datetime
+import errno
+import json
 import logging
 import os
+import pickle
 from typing import Tuple
 
 import torch
@@ -11,6 +14,33 @@ from torch.utils import tensorboard
 from torchvision import datasets
 from torchvision import transforms
 import torchvision.models as models
+
+
+def mkdir_p(path):
+  # https://stackoverflow.com/q/23793987
+  try:
+    os.makedirs(path)
+  except OSError as exc:
+    if exc.errno == errno.EEXIST and os.path.isdir(path):
+      pass
+    else:
+      raise
+
+
+def safe_open(path, mode):
+  # TODO: Only for write modes.
+  mkdir_p(os.path.dirname(path))
+  return open(path, mode)
+
+
+def write_json(file_path: str, data_dict):
+  with open(file_path, "w") as fp:
+    json.dump(data_dict, fp)
+
+
+def write_pickle(file_path, data):
+  with safe_open(file_path, "wb") as fp:
+    pickle.dump(data, fp)
 
 
 def get_current_ts() -> str:
@@ -148,6 +178,9 @@ class Metrics:
 
     self.w_act = collections.defaultdict(list)
     self.ncc_mismatch = collections.defaultdict(list)
+
+    self.sub_mean = collections.defaultdict(list)
+    self.sub_std = collections.defaultdict(list)
 
   def append_items(self, epoch: int, metric_type: str, **kwargs):
     logging.info(f"{metric_type.title()} " + "-" * 10)

@@ -19,7 +19,7 @@ import utils
 _CFG = {
     "seed": 42,
     "adv": {
-        "flip": True,
+        "flip": False,
         "percent": 0.5,
         "target": 8,
     },
@@ -60,6 +60,7 @@ _CFG = {
         "root": "runs/{experiment}",
         "model": "model_{epoch_idx}",
         "writer": "writer",
+        "metrics": "metrics_{set}/{epoch_idx}.pkl",
     },
     "sub": {
         "target": 8,
@@ -121,7 +122,7 @@ def main():
     _CFG["path"]["root"] = "debug/{experiment}"
 
   cfg = configs.Configs(_CFG, args)
-  logging.info(f"Experiment: {cfg['experiment']}.")
+  logging.info(f"Experiment: {cfg['experiment']}")
 
   model = utils.load_model(
       model_name=cfg["model", "name"],
