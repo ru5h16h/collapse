@@ -131,7 +131,7 @@ def get_within_class_cov_and_other(
   loss /= n_samples
   acc /= n_samples
   ncc_mismatch /= n_samples
-  sub_std = (sub_std**(1 / 2)) / sub_ctr
+  sub_std = (sub_std / sub_ctr)**(1 / 2)
   return Sw, loss, acc, ncc_mismatch, sub_op, sub_std
 
 
