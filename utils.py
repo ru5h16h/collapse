@@ -43,6 +43,12 @@ def write_pickle(file_path, data):
     pickle.dump(data, fp)
 
 
+def load_pickle(file_path):
+  with open(file_path, "rb") as fp:
+    data = pickle.load(fp)
+  return data
+
+
 def get_current_ts() -> str:
   return datetime.datetime.now().strftime("%Y%m%dT%H%M%S")
 
