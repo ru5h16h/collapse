@@ -16,25 +16,15 @@ from torchvision import transforms
 import torchvision.models as models
 
 
-def mkdir_p(path):
-  # https://stackoverflow.com/q/23793987
-  try:
-    os.makedirs(path)
-  except OSError as exc:
-    if exc.errno == errno.EEXIST and os.path.isdir(path):
-      pass
-    else:
-      raise
-
-
 def safe_open(path, mode):
-  # TODO: Only for write modes.
-  mkdir_p(os.path.dirname(path))
+  if mode not in {"wb", "w"}:
+    raise ValueError("Only use safe open in write mode.")
+  os.makedirs(os.path.dirname(path), exist_ok=True)
   return open(path, mode)
 
 
 def write_json(file_path: str, data_dict):
-  with open(file_path, "w") as fp:
+  with safe_open(file_path, "w") as fp:
     json.dump(data_dict, fp)
 
 
@@ -142,18 +132,24 @@ def load_data(cfg) -> Tuple[data.DataLoader, data.DataLoader]:
       download=True,
       transform=transform,
   )
-  test_data_adv = MutableMNIST(
-      root="data",
-      train=False,
-      download=True,
-      transform=transform,
-  )
-
-  if cfg["adv", "flip"]:
-    modify_data(train_data, cfg)
-    modify_data(test_data_adv, cfg, True)
 
   batch_size = cfg["train", "batch_size"]
+  if cfg["adv", "flip"]:
+    test_data_adv = MutableMNIST(
+        root="data",
+        train=False,
+        download=True,
+        transform=transform,
+    )
+    modify_data(train_data, cfg)
+    modify_data(test_data_adv, cfg, True)
+    test_loader_adv = data.DataLoader(
+        dataset=test_data_adv,
+        batch_size=batch_size,
+        shuffle=False,
+        drop_last=True,
+    )
+
   # TODO: Does adding `drop_last` affects the final result?
   train_loader = data.DataLoader(
       dataset=train_data,
@@ -167,13 +163,11 @@ def load_data(cfg) -> Tuple[data.DataLoader, data.DataLoader]:
       shuffle=False,
       drop_last=True,
   )
-  test_loader_adv = data.DataLoader(
-      dataset=test_data_adv,
-      batch_size=batch_size,
-      shuffle=False,
-      drop_last=True,
-  )
-  return train_loader, test_loader_orig, test_loader_adv
+  if cfg["adv", "flip"]:
+    test_loaders = [test_loader_orig, test_loader_adv]
+  else:
+    test_loaders = [test_loader_orig]
+  return train_loader, test_loaders
 
 
 class Metrics:

@@ -137,7 +137,7 @@ def main():
   )
   features = utils.Features(module=model.fc)
 
-  train_loader, test_loader_orig, test_loader_adv = utils.load_data(cfg)
+  train_loader, test_loaders = utils.load_data(cfg)
 
   loss_fn = nn.CrossEntropyLoss()
   loss_fn_red = nn.CrossEntropyLoss(reduction='sum')
@@ -175,8 +175,9 @@ def main():
           cfg=cfg,
       )
       evaluate_p(data_loader=train_loader, loader_type="train")
-      evaluate_p(data_loader=test_loader_orig, loader_type="test_orig")
-      evaluate_p(data_loader=test_loader_adv, loader_type="test_orig")
+      for test_loader, loader_type in zip(test_loaders,
+                                          ["test_orig", "test_adv"]):
+        evaluate_p(data_loader=test_loader, loader_type=loader_type)
 
       torch.save(model.state_dict(), model_path.format(epoch_idx=epoch_idx))
 
