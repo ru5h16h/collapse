@@ -103,8 +103,10 @@ class MutableMNIST(datasets.MNIST):
     self.data[index] = img
     self.targets[index] = target
 
-  def update_adv(self, indices, target):
-    self.data[indices, 0, 0] = 1
+  def update_adv(self, indices, target, cfg):
+    coords = torch.Tensor(cfg["adv", "coords"]).int()
+    values = torch.Tensor(cfg["adv", "to"]).type(torch.uint8)
+    self.data[indices, coords[:, 0], coords[:, 1]] = values
     self.targets[indices] = target
 
 
@@ -117,7 +119,7 @@ def modify_data(data, cfg, update_all=False):
     indices = torch.Tensor([1 if label != target else 0 for _, label in data])
     indices = indices.nonzero().squeeze(1)
     indices = indices[torch.randperm(indices.size(0))][:n_change].tolist()
-  data.update_adv(indices, target)
+  data.update_adv(indices, target, cfg)
 
 
 def load_data(cfg) -> Tuple[data.DataLoader, data.DataLoader]:

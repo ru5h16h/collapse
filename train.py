@@ -22,6 +22,8 @@ _CFG = {
         "flip": False,
         "percent": 0.5,
         "target": 8,
+        "to": [1],
+        "coords": [(0, 0)],
     },
     "experiment": utils.get_current_ts(),
     "model": {
