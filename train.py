@@ -77,6 +77,11 @@ def parse_args():
       action="store_true",
       help="toggles debug mode",
   )
+  parser.add_argument(
+      "--configs",
+      type=str,
+      help="path to the configs",
+  )
   return parser.parse_args()
 
 
@@ -123,7 +128,7 @@ def main():
   if args.debug:
     _CFG["path"]["root"] = "debug/{experiment}"
 
-  cfg = configs.Configs(_CFG, args)
+  cfg = configs.Configs(_CFG, args.configs, args)
   logging.info(f"Experiment: {cfg['experiment']}")
 
   model = utils.load_model(
