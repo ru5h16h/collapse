@@ -103,24 +103,24 @@ class MutableMNIST(datasets.MNIST):
     self.data[index] = img
     self.targets[index] = target
 
-  def update_adv(self, index, target):
-    self.data[index, 0, 0] = 1
-    self.targets[index] = target
+  def update_adv(self, indices, target):
+    self.data[indices, 0, 0] = 1
+    self.targets[indices] = target
 
 
-def modify_data(data, cfg):
-  n_change = int(len(data) * cfg["adv", "percent"] / 100)
-
+def modify_data(data, cfg, update_all=False):
   target = cfg["adv", "target"]
-  indices = torch.Tensor([1 if label != target else 0 for _, label in data])
-  indices = indices.nonzero().squeeze(1)
-  indices = indices[torch.randperm(indices.size(0))][:n_change].tolist()
+  if update_all:
+    indices = torch.arange(len(data))
+  else:
+    n_change = int(len(data) * cfg["adv", "percent"] / 100)
+    indices = torch.Tensor([1 if label != target else 0 for _, label in data])
+    indices = indices.nonzero().squeeze(1)
+    indices = indices[torch.randperm(indices.size(0))][:n_change].tolist()
+  data.update_adv(indices, target)
 
-  for idx in indices:
-    data.update_adv(idx, target)
 
-
-def load_data(cfg) -> Tuple[data.DataLoader, data.DataLoader, data.DataLoader]:
+def load_data(cfg) -> Tuple[data.DataLoader, data.DataLoader]:
   transform = transforms.Compose([
       transforms.Pad(
           (cfg["data", "padded_img_size"] - cfg["data", "img_size"]) // 2),
@@ -134,7 +134,13 @@ def load_data(cfg) -> Tuple[data.DataLoader, data.DataLoader, data.DataLoader]:
       download=True,
       transform=transform,
   )
-  test_data = MutableMNIST(
+  test_data_orig = MutableMNIST(
+      root="data",
+      train=False,
+      download=True,
+      transform=transform,
+  )
+  test_data_adv = MutableMNIST(
       root="data",
       train=False,
       download=True,
@@ -143,7 +149,7 @@ def load_data(cfg) -> Tuple[data.DataLoader, data.DataLoader, data.DataLoader]:
 
   if cfg["adv", "flip"]:
     modify_data(train_data, cfg)
-    modify_data(test_data, cfg)
+    modify_data(test_data_adv, cfg, True)
 
   batch_size = cfg["train", "batch_size"]
   # TODO: Does adding `drop_last` affects the final result?
@@ -153,13 +159,19 @@ def load_data(cfg) -> Tuple[data.DataLoader, data.DataLoader, data.DataLoader]:
       shuffle=True,
       drop_last=True,
   )
-  test_loader = data.DataLoader(
-      dataset=test_data,
+  test_loader_orig = data.DataLoader(
+      dataset=test_data_orig,
       batch_size=batch_size,
       shuffle=False,
       drop_last=True,
   )
-  return train_loader, test_loader
+  test_loader_adv = data.DataLoader(
+      dataset=test_data_adv,
+      batch_size=batch_size,
+      shuffle=False,
+      drop_last=True,
+  )
+  return train_loader, test_loader_orig, test_loader_adv
 
 
 class Metrics:

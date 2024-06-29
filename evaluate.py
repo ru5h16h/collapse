@@ -56,7 +56,7 @@ def get_class_means(
         break
 
   mean /= n_per_class.unsqueeze(dim=1)
-  sub_mean /= sub_ctr
+  sub_mean /= (sub_ctr or 1)
   return mean.T, sub_mean
 
 
@@ -131,7 +131,7 @@ def get_within_class_cov_and_other(
   loss /= n_samples
   acc /= n_samples
   ncc_mismatch /= n_samples
-  sub_std = (sub_std / sub_ctr)**(1 / 2)
+  sub_std = (sub_std / (sub_ctr or 1))**(1 / 2)
   return Sw, loss, acc, ncc_mismatch, sub_op, sub_std
 
 
@@ -186,8 +186,8 @@ def evaluate(
   w_fc = model.fc.weight.T
 
   # # tr{Sw Sb^-1}. Training within-class variation collapse. See figure 6.
-  cov_wc = cov_wc.cpu().detach().numpy()
-  cov_bc = cov_bc.cpu().detach().numpy()
+  cov_wc = np.nan_to_num(cov_wc.cpu().detach().numpy())
+  cov_bc = np.nan_to_num(cov_bc.cpu().detach().numpy())
   eig_vec, eig_val, _ = linalg.svds(cov_bc, k=n_classes - 1)
   inv_cov_bc = eig_vec @ np.diag(eig_val**(-1)) @ eig_vec.T
   metrics_d["wc_nc"] = np.trace(cov_wc @ inv_cov_bc)
